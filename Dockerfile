@@ -1,7 +1,7 @@
 # ==========================================
-# Stage 1: Build Frontend Assets
+# Stage 1: Build Frontend Assets (Native Builder)
 # ==========================================
-FROM node:22-alpine AS web-builder
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web-builder
 WORKDIR /app/web
 
 COPY web/package.json web/package-lock.json* ./
@@ -11,9 +11,11 @@ COPY web/ ./
 RUN npm run build
 
 # ==========================================
-# Stage 2: Build Host Server Binary
+# Stage 2: Build Host Server Binary (Native Cross-Compiler)
 # ==========================================
-FROM golang:1.22-alpine AS host-builder
+FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS host-builder
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /app
 
 RUN apk add --no-cache git ca-certificates
@@ -23,10 +25,10 @@ COPY host/ ./host/
 
 WORKDIR /app/host
 ENV GOWORK=off
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /app/bin/justping-host ./cmd/server
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-s -w" -o /app/bin/justping-host ./cmd/server
 
 # ==========================================
-# Stage 3: Runtime Container
+# Stage 3: Target Runtime Container
 # ==========================================
 FROM alpine:3.20
 
