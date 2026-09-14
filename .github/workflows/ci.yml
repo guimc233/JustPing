@@ -17,7 +17,7 @@ jobs:
   # 1. Build Multi-Platform Host Binaries
   # =========================================================================
   build-host-binaries:
-    name: Build Host Binaries
+    name: Build Host (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -25,15 +25,19 @@ jobs:
         include:
           - os: linux
             arch: amd64
+            name: linux-amd64
             ext: ""
           - os: linux
             arch: arm64
+            name: linux-arm64
             ext: ""
           - os: windows
             arch: amd64
+            name: windows-amd64
             ext: ".exe"
           - os: windows
             arch: arm64
+            name: windows-arm64
             ext: ".exe"
     steps:
       - name: Checkout Repository
@@ -64,77 +68,92 @@ jobs:
           CGO_ENABLED: 0
         run: |
           mkdir -p ../dist
-          OUTPUT="../dist/justping-host-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}"
+          OUTPUT="../dist/justping-host-${{ matrix.name }}${{ matrix.ext }}"
           go build -ldflags="-s -w" -o "$OUTPUT" ./cmd/server
 
       - name: Upload Host Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: host-${{ matrix.os }}-${{ matrix.arch }}
-          path: dist/justping-host-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}
+          name: host-${{ matrix.name }}
+          path: dist/justping-host-${{ matrix.name }}${{ matrix.ext }}
 
   # =========================================================================
   # 2. Build Multi-Platform Agent Binaries
   # =========================================================================
   build-agent-binaries:
-    name: Build Agent Binaries (${{ matrix.os }}-${{ matrix.arch }}${{ matrix.arm ? format('-arm{0}', matrix.arm) : '' }})
+    name: Build Agent (${{ matrix.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux Common & Embedded Modern/Legacy
+          # Linux Common & Embedded
           - os: linux
             arch: amd64
+            name: linux-amd64
             ext: ""
           - os: linux
             arch: 386
+            name: linux-386
             ext: ""
           - os: linux
             arch: arm64
+            name: linux-arm64
             ext: ""
           - os: linux
             arch: arm
             arm: "7"
+            name: linux-armv7
             ext: ""
           - os: linux
             arch: arm
             arm: "6"
+            name: linux-armv6
             ext: ""
           - os: linux
             arch: arm
             arm: "5"
+            name: linux-armv5
             ext: ""
           - os: linux
             arch: riscv64
+            name: linux-riscv64
             ext: ""
           - os: linux
             arch: ppc64le
+            name: linux-ppc64le
             ext: ""
           - os: linux
             arch: s390x
+            name: linux-s390x
             ext: ""
           # MIPS Series
           - os: linux
             arch: mips
             gomips: "hardfloat"
+            name: linux-mips
             ext: ""
           - os: linux
             arch: mipsel
             gomips: "hardfloat"
+            name: linux-mipsel
             ext: ""
           - os: linux
             arch: mips64
+            name: linux-mips64
             ext: ""
           - os: linux
             arch: mips64el
+            name: linux-mips64el
             ext: ""
           # Windows
           - os: windows
             arch: amd64
+            name: windows-amd64
             ext: ".exe"
           - os: windows
             arch: 386
+            name: windows-386
             ext: ".exe"
 
     steps:
@@ -157,18 +176,14 @@ jobs:
           CGO_ENABLED: 0
         run: |
           mkdir -p ../dist
-          NAME="justping-agent-${{ matrix.os }}-${{ matrix.arch }}"
-          if [ -n "${{ matrix.arm }}" ]; then
-            NAME="justping-agent-${{ matrix.os }}-${{ matrix.arch }}v${{ matrix.arm }}"
-          fi
-          OUTPUT="../dist/${NAME}${{ matrix.ext }}"
+          OUTPUT="../dist/justping-agent-${{ matrix.name }}${{ matrix.ext }}"
           go build -ldflags="-s -w -X main.Version=${{ github.ref_name }}" -o "$OUTPUT" ./cmd/agent
 
       - name: Upload Agent Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: agent-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.arm && format('-armv{0}', matrix.arm) || '' }}
-          path: dist/justping-agent-*
+          name: agent-${{ matrix.name }}
+          path: dist/justping-agent-${{ matrix.name }}${{ matrix.ext }}
 
   # =========================================================================
   # 3. Build & Push Multi-Arch Docker Image to GHCR
