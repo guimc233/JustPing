@@ -42,15 +42,16 @@ func getPublicAgents(c *gin.Context) {
 	db.DB.Order("is_online desc, name asc").Find(&agents)
 
 	type respItem struct {
-		ID         string    `json:"id"`
-		Name       string    `json:"name"`
-		PublicIP   string    `json:"public_ip"`
-		OS         string    `json:"os"`
-		Arch       string    `json:"arch"`
-		Version    string    `json:"version"`
-		Tags       string    `json:"tags"`
-		IsOnline   bool      `json:"is_online"`
-		LastSeenAt time.Time `json:"last_seen_at"`
+		ID         string       `json:"id"`
+		Name       string       `json:"name"`
+		PublicIP   string       `json:"public_ip"`
+		OS         string       `json:"os"`
+		Arch       string       `json:"arch"`
+		Version    string       `json:"version"`
+		Tags       string       `json:"tags"`
+		IsOnline   bool         `json:"is_online"`
+		LastSeenAt time.Time    `json:"last_seen_at"`
+		Quality    AgentQuality `json:"quality"`
 	}
 
 	resp := make([]respItem, 0, len(agents))
@@ -59,6 +60,9 @@ func getPublicAgents(c *gin.Context) {
 		if !isAdmin {
 			ip = auth.MaskIP(ip)
 		}
+		rtt, jitter, loss := getRecentAgentMetrics(a.ID)
+		q := calculateAgentQuality(rtt, jitter, loss, a.IsOnline)
+
 		resp = append(resp, respItem{
 			ID:         a.ID,
 			Name:       a.Name,
@@ -69,6 +73,7 @@ func getPublicAgents(c *gin.Context) {
 			Tags:       a.Tags,
 			IsOnline:   a.IsOnline,
 			LastSeenAt: a.LastSeenAt,
+			Quality:    q,
 		})
 	}
 	c.JSON(http.StatusOK, resp)
