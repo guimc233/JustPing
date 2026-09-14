@@ -1,0 +1,43 @@
+# Binaries
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go
+vendor/
+host/bin/
+agent/bin/
+
+# Node / Web
+node_modules/
+web/dist/
+web/.env.local
+web/.env.*.local
+
+# Env & Secrets (Strict: prevent any credential leakage)
+.env
+*.env
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Database / Local runs
+data/
+*.log
