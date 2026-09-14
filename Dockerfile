@@ -18,11 +18,12 @@ WORKDIR /app
 
 RUN apk add --no-cache git ca-certificates
 
-COPY go.work* ./
 COPY shared/ ./shared/
 COPY host/ ./host/
 
-RUN CGO_ENABLED=0 go build -C host -ldflags="-s -w" -o /app/bin/justping-host ./cmd/server
+WORKDIR /app/host
+ENV GOWORK=off
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /app/bin/justping-host ./cmd/server
 
 # ==========================================
 # Stage 3: Runtime Container
