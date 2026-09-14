@@ -58,7 +58,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          cache: true
+          cache-dependency-path: '**/go.sum'
 
       - name: Compile Host Binary
         working-directory: host
@@ -134,17 +134,17 @@ jobs:
             name: linux-mips
             ext: ""
           - os: linux
-            arch: mipsel
+            arch: mipsle
             gomips: "hardfloat"
-            name: linux-mipsel
+            name: linux-mipsle
             ext: ""
           - os: linux
             arch: mips64
             name: linux-mips64
             ext: ""
           - os: linux
-            arch: mips64el
-            name: linux-mips64el
+            arch: mips64le
+            name: linux-mips64le
             ext: ""
           # Windows
           - os: windows
@@ -164,7 +164,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          cache: true
+          cache-dependency-path: '**/go.sum'
 
       - name: Compile Agent Binary
         working-directory: agent

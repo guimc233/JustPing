@@ -103,13 +103,13 @@ case "${ARCH_RAW}" in
         ARCH="mips"
         ;;
     mipsel|mipsle)
-        ARCH="mipsel"
+        ARCH="mipsle"
         ;;
     mips64)
         ARCH="mips64"
         ;;
     mips64el|mips64le)
-        ARCH="mips64el"
+        ARCH="mips64le"
         ;;
     riscv64)
         ARCH="riscv64"
