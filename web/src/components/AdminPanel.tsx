@@ -449,7 +449,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                     <TableCell className="text-xs text-muted-foreground">
                       {a.os || '—'} / {a.arch || '—'}
                     </TableCell>
-                    <TableCell className="text-xs">{a.version || '1.0.0'}</TableCell>
+                    <TableCell className="text-xs">{a.version || '—'}</TableCell>
                     <TableCell>
                       <Badge variant={a.is_online ? 'success' : 'secondary'}>
                         {a.is_online ? 'Online' : 'Offline'}

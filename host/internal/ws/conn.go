@@ -13,12 +13,13 @@ import (
 )
 
 type AgentConn struct {
-	AgentID string
-	Conn    *websocket.Conn
-	Send    chan []byte
-	Hub     *Hub
-	closeMu sync.Mutex
-	closed  bool
+	AgentID  string
+	RemoteIP string
+	Conn     *websocket.Conn
+	Send     chan []byte
+	Hub      *Hub
+	closeMu  sync.Mutex
+	closed   bool
 }
 
 func (ac *AgentConn) Close() {

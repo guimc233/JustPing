@@ -34,7 +34,11 @@ func (h *Hub) Register(agentID string, ac *AgentConn) {
 		old.Close()
 	}
 	h.agents[agentID] = ac
-	log.Printf("[WS Hub] Agent %s connected. Online probes: %d\n", agentID, len(h.agents))
+	if ac.RemoteIP != "" {
+		log.Printf("[WS Hub] Agent %s connected from %s. Online probes: %d\n", agentID, ac.RemoteIP, len(h.agents))
+	} else {
+		log.Printf("[WS Hub] Agent %s connected. Online probes: %d\n", agentID, len(h.agents))
+	}
 }
 
 // Unregister removes an agent connection only if it is the current registered instance
@@ -48,7 +52,11 @@ func (h *Hub) Unregister(agentID string, ac *AgentConn) {
 
 	delete(h.agents, agentID)
 	ac.Close()
-	log.Printf("[WS Hub] Agent %s disconnected. Online probes: %d\n", agentID, len(h.agents))
+	if ac.RemoteIP != "" {
+		log.Printf("[WS Hub] Agent %s (%s) disconnected. Online probes: %d\n", agentID, ac.RemoteIP, len(h.agents))
+	} else {
+		log.Printf("[WS Hub] Agent %s disconnected. Online probes: %d\n", agentID, len(h.agents))
+	}
 
 	_ = db.DB.Model(&model.Agent{}).Where("id = ?", agentID).Updates(map[string]any{
 		"is_online":    false,

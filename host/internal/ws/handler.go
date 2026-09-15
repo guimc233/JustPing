@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/guimc233/JustPing/host/internal/db"
+	"github.com/guimc233/JustPing/host/internal/iputil"
 	"github.com/guimc233/JustPing/host/internal/model"
 	"github.com/guimc233/JustPing/shared/protocol"
 )
@@ -31,10 +32,16 @@ func (h *Hub) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
+	remoteIP := iputil.GetClientIP(c.Request)
+	if remoteIP == "" {
+		remoteIP = c.ClientIP()
+	}
+
 	ac := &AgentConn{
-		Conn: conn,
-		Send: make(chan []byte, 256),
-		Hub:  h,
+		Conn:     conn,
+		Send:     make(chan []byte, 256),
+		Hub:      h,
+		RemoteIP: remoteIP,
 	}
 
 	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
@@ -65,11 +72,9 @@ func (h *Hub) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
-	remoteIP := c.ClientIP()
-
 	agent.IsOnline = true
 	agent.LastSeenAt = time.Now()
-	agent.PublicIP = remoteIP
+	agent.PublicIP = ac.RemoteIP
 	agent.OS = regReq.OS
 	agent.Arch = regReq.Arch
 	agent.Version = regReq.Version

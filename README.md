@@ -26,6 +26,7 @@
   - Wide architecture support: `amd64`, `386`, `arm64`, `armv7/v6/v5`, `riscv64`, `mips/mipsle` (softfloat & hardfloat), `mips64/mips64le`, `ppc64le`, `s390x`.
 - **Universal Verified Linux Service Installer**:
   - One-line verified installation script (`install.sh`) with SHA256 checksum verification and secure temporary directories.
+  - Optional `--china-mirror` flag that races GitHub mirrors in parallel and picks the fastest responder.
   - Native service integration across **systemd**, **OpenRC** (Alpine/Gentoo), **procd** (OpenWrt), **runit** (Void Linux), and legacy **SysVinit**.
 - **Automated CI/CD**:
   - Multi-arch Docker image published to GitHub Container Registry (`ghcr.io/guimc233/justping`).
@@ -78,6 +79,18 @@ curl -fsSL https://ping.example.com/install.sh | sudo bash -s -- \
 ```
 
 The script automatically detects your Linux init system (systemd, OpenRC, procd, runit, or SysVinit) and architecture, installs the binary, sets up system permissions, and starts the service.
+
+Inside mainland China, add `--china-mirror`. The installer then probes all known
+GitHub mirrors concurrently and downloads from the fastest working one. Every
+candidate is still checked against the official SHA256 checksums, and GitHub
+itself remains the final fallback:
+
+```bash
+curl -fsSL https://ping.example.com/install.sh | sudo bash -s -- \
+  --server https://ping.example.com \
+  --token <YOUR_AGENT_TOKEN> \
+  --china-mirror
+```
 
 ---
 

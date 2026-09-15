@@ -126,7 +126,7 @@ exit 0
 	return nil
 }
 
-func installWindows(binPath, serverURL, token string) error {
+func installWindows(binPath string, cfg AgentConfig) error {
 	appData := os.Getenv("ProgramData")
 	if appData == "" {
 		appData = "C:\\ProgramData"
@@ -137,7 +137,7 @@ func installWindows(binPath, serverURL, token string) error {
 	}
 	cfgFile := filepath.Join(cfgDir, "agent.json")
 
-	cfgData, err := json.MarshalIndent(AgentConfig{Server: serverURL, Token: token}, "", "  ")
+	cfgData, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
 	}

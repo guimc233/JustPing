@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from './ui/table'
 import { Badge } from './ui/badge'
-import { Server, Zap, Shield, RefreshCw, ChevronRight, BarChart3, Wifi } from 'lucide-react'
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts'
+import { Server, Zap, Shield, RefreshCw, ChevronRight, BarChart3, Wifi, Target, Activity } from 'lucide-react'
+import { SmokepingChart, type MetricDataPoint } from './SmokepingChart'
 
 interface PublicDashboardProps {
   isAdmin: boolean
@@ -17,11 +17,13 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({ isAdmin }) => 
   const [matrix, setMatrix] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
-  // Selected agent for deep-dive inspection
+  // Selected agent & target for deep-dive inspection
   const [selectedAgentId, setSelectedAgentId] = useState<string>('')
+  const [selectedTargetId, setSelectedTargetId] = useState<string>('')
   const [chartRange, setChartRange] = useState<string>('1h')
-  const [chartData, setChartData] = useState<any[]>([])
+  const [chartData, setChartData] = useState<MetricDataPoint[]>([])
   const [chartLoading, setChartLoading] = useState(false)
+  const inspectCardRef = useRef<HTMLDivElement>(null)
 
   const fetchData = async () => {
     try {
@@ -48,6 +50,13 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({ isAdmin }) => 
         }
         return agData.length > 0 ? agData[0].id : ''
       })
+
+      setSelectedTargetId((prev) => {
+        if (prev && tgData.some((t: any) => t.id === prev)) {
+          return prev
+        }
+        return tgData.length > 0 ? tgData[0].id : ''
+      })
     } catch (err) {
       console.error('Failed to load probe metrics:', err)
     } finally {
@@ -59,18 +68,13 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({ isAdmin }) => 
     if (!selectedAgentId) return
     setChartLoading(true)
     try {
-      const url = `/api/public/metrics?range=${chartRange}&agent_id=${selectedAgentId}`
+      let url = `/api/public/metrics?range=${chartRange}&agent_id=${selectedAgentId}`
+      if (selectedTargetId) {
+        url += `&target_id=${selectedTargetId}`
+      }
       const res = await fetch(url)
-      const data = await res.json()
-      const formatted = data.map((d: any) => ({
-        time: new Date(d.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        avg: d.avg_rtt_ms,
-        min: d.min_rtt_ms,
-        max: d.max_rtt_ms,
-        jitter: d.jitter_ms,
-        loss: d.loss_pct,
-      }))
-      setChartData(formatted)
+      const data: MetricDataPoint[] = await res.json()
+      setChartData(data)
     } catch (err) {
       console.error('Failed to load agent chart metrics:', err)
     } finally {
@@ -86,9 +90,10 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({ isAdmin }) => 
 
   useEffect(() => {
     fetchAgentChartMetrics()
-  }, [selectedAgentId, chartRange])
+  }, [selectedAgentId, selectedTargetId, chartRange])
 
   const selectedAgent = agents.find((a) => a.id === selectedAgentId) || agents[0]
+  const selectedTarget = targets.find((t) => t.id === selectedTargetId) || targets[0]
 
   // Calculate fleet health
   const onlineAgents = agents.filter((a) => a.is_online)
@@ -227,7 +232,10 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({ isAdmin }) => 
                 return (
                   <div
                     key={agent.id}
-                    onClick={() => setSelectedAgentId(agent.id)}
+                    onClick={() => {
+                      setSelectedAgentId(agent.id)
+                      inspectCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                    }}
                     className={`rounded-xl border p-4 transition-all cursor-pointer flex flex-col justify-between gap-3 ${
                       isSelected
                         ? 'border-primary bg-primary/5 shadow-md shadow-primary/10'
@@ -289,90 +297,71 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({ isAdmin }) => 
         </CardContent>
       </Card>
 
-      {/* Secondary Section: Selected Probe Network Stability Analysis */}
+      {/* Secondary Section: SmokePing Network Stability Analysis */}
       {selectedAgent && (
-        <Card className="border-primary/40">
-          <CardHeader className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2">
-            <div>
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-base">
-                  Probe Network Inspection: <span className="text-primary">{selectedAgent.name}</span>
-                </CardTitle>
-                {getGradeBadge(selectedAgent.quality?.quality_grade || 'A+')}
+        <Card ref={inspectCardRef} className="border-primary/40 scroll-mt-6">
+          <CardHeader className="flex flex-col gap-3 pb-2">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Activity className="size-4 text-primary" />
+                  <CardTitle className="text-base">
+                    SmokePing Inspection: <span className="text-primary">{selectedAgent.name}</span>
+                  </CardTitle>
+                  {getGradeBadge(selectedAgent.quality?.quality_grade || 'A+')}
+                </div>
+                <CardDescription className="text-xs mt-0.5">
+                  Multi-ping dispersion plume (smoke), median latency, and packet loss timeline
+                </CardDescription>
               </div>
-              <CardDescription className="text-xs mt-0.5">
-                Latency, jitter, and packet loss timeline for this probe against reference benchmark targets
-              </CardDescription>
+
+              {/* Time range selector */}
+              <div className="flex rounded-md border border-border bg-muted/40 p-0.5 self-start md:self-auto">
+                {['1h', '6h', '24h', '7d'].map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setChartRange(r)}
+                    className={`rounded px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
+                      chartRange === r ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Time range selector */}
-            <div className="flex rounded-md border border-border bg-muted/40 p-0.5">
-              {['1h', '6h', '24h', '7d'].map((r) => (
-                <button
-                  key={r}
-                  onClick={() => setChartRange(r)}
-                  className={`rounded px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
-                    chartRange === r ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
+            {/* Target selector tabs */}
+            {targets.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-border/40">
+                <span className="text-xs font-medium text-muted-foreground mr-1 flex items-center gap-1">
+                  <Target className="size-3.5 text-primary" /> Reference Target:
+                </span>
+                {targets.map((tg) => (
+                  <button
+                    key={tg.id}
+                    onClick={() => setSelectedTargetId(tg.id)}
+                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition cursor-pointer border ${
+                      (selectedTargetId === tg.id || (!selectedTargetId && tg.id === targets[0].id))
+                        ? 'bg-primary/20 text-primary border-primary/50'
+                        : 'bg-muted/30 text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/60'
+                    }`}
+                  >
+                    {tg.name}
+                    <span className="ml-1.5 text-[10px] font-mono opacity-70">({tg.host})</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </CardHeader>
 
           <CardContent className="pt-2">
-            {chartLoading ? (
-              <div className="h-[260px] flex items-center justify-center text-xs text-muted-foreground">
-                Loading probe metrics...
-              </div>
-            ) : chartData.length === 0 ? (
-              <div className="h-[260px] flex items-center justify-center text-xs text-muted-foreground">
-                No telemetry recorded yet for this probe in the selected period.
-              </div>
-            ) : (
-              <div className="h-[280px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorAvg" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0} />
-                      </linearGradient>
-                      <linearGradient id="colorJitter" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="#a855f7" stopOpacity={0.0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                    <XAxis dataKey="time" stroke="#71717a" fontSize={11} />
-                    <YAxis stroke="#71717a" fontSize={11} unit="ms" />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '8px' }}
-                      labelStyle={{ color: '#e4e4e7', fontWeight: 'bold', fontSize: '12px' }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="avg"
-                      name="Latency (RTT)"
-                      stroke="#3b82f6"
-                      strokeWidth={2}
-                      fillOpacity={1}
-                      fill="url(#colorAvg)"
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="jitter"
-                      name="Jitter (RFC 3550)"
-                      stroke="#a855f7"
-                      strokeWidth={1.5}
-                      fillOpacity={1}
-                      fill="url(#colorJitter)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            )}
+            <SmokepingChart
+              data={chartData}
+              probeName={selectedAgent.name}
+              targetName={selectedTarget?.name}
+              loading={chartLoading}
+            />
           </CardContent>
         </Card>
       )}
@@ -443,7 +432,11 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({ isAdmin }) => 
                         return (
                           <TableCell key={target.id} className="text-center">
                             <div
-                              onClick={() => setSelectedAgentId(agent.id)}
+                              onClick={() => {
+                                setSelectedAgentId(agent.id)
+                                setSelectedTargetId(target.id)
+                                inspectCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+                              }}
                               className={`inline-flex flex-col items-center justify-center rounded-md border px-2.5 py-1 text-xs cursor-pointer transition hover:scale-105 ${color}`}
                             >
                               <div className="font-bold">{cell.avg_rtt_ms} ms</div>

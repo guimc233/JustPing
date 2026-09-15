@@ -31,7 +31,7 @@ func main() {
 	}
 
 	r := gin.Default()
-	_ = r.SetTrustedProxies(nil) // Restrict default reverse proxy trusts
+	configureTrustedProxies(r)
 
 	// Explicit secure CORS
 	appURL := db.GetSetting("app_url")
@@ -94,4 +94,45 @@ func serveInstallScript(c *gin.Context) {
 
 	c.Header("Content-Type", "text/x-shellscript; charset=utf-8")
 	c.String(http.StatusOK, "#!/bin/sh\necho 'JustPing agent installer'\n")
+}
+
+func configureTrustedProxies(r *gin.Engine) {
+	trustedEnv := os.Getenv("TRUSTED_PROXIES")
+	if trustedEnv != "" {
+		trimmed := strings.TrimSpace(trustedEnv)
+		if trimmed == "none" || trimmed == "nil" || trimmed == "off" || trimmed == "false" {
+			_ = r.SetTrustedProxies(nil)
+			return
+		}
+		if trimmed == "*" || trimmed == "all" {
+			_ = r.SetTrustedProxies([]string{"0.0.0.0/0", "::/0"})
+			return
+		}
+		var proxies []string
+		for _, p := range strings.Split(trimmed, ",") {
+			if s := strings.TrimSpace(p); s != "" {
+				proxies = append(proxies, s)
+			}
+		}
+		if len(proxies) > 0 {
+			if err := r.SetTrustedProxies(proxies); err != nil {
+				log.Printf("[Warn] Failed to set TRUSTED_PROXIES: %v\n", err)
+			}
+			return
+		}
+	}
+
+	// Default trusted proxies: trust loopback, Docker, and RFC1918/RFC4193 private subnets
+	// so reverse proxies (Nginx, Caddy, Traefik, Docker ingress) work out of the box.
+	defaultProxies := []string{
+		"127.0.0.0/8",
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"::1/128",
+		"fc00::/7",
+	}
+	if err := r.SetTrustedProxies(defaultProxies); err != nil {
+		log.Printf("[Warn] Failed to set default trusted proxies: %v\n", err)
+	}
 }

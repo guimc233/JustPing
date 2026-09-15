@@ -11,24 +11,34 @@ import (
 )
 
 type AgentConfig struct {
-	Server string `json:"server"`
-	Token  string `json:"token"`
+	Server      string `json:"server"`
+	Token       string `json:"token"`
+	ChinaMirror bool   `json:"china_mirror"`
+	AutoUpdate  *bool  `json:"auto_update,omitempty"`
+}
+
+// IsAutoUpdateEnabled returns true if AutoUpdate is nil (default: enabled) or explicitly set to true.
+func (c AgentConfig) IsAutoUpdateEnabled() bool {
+	if c.AutoUpdate == nil {
+		return true
+	}
+	return *c.AutoUpdate
 }
 
 // InstallService writes configuration and installs the agent as an OS service
-func InstallService(binPath, serverURL, token string) error {
+func InstallService(binPath string, cfg AgentConfig) error {
 	initType := DetectInit()
 	fmt.Printf("[Installer] Detected init system: %s\n", initType)
 
 	if runtime.GOOS == "windows" {
-		return installWindows(binPath, serverURL, token)
+		return installWindows(binPath, cfg)
 	}
 
 	if err := os.MkdirAll("/etc/justping", 0755); err != nil {
 		return fmt.Errorf("failed to create /etc/justping: %w", err)
 	}
 
-	cfgData, err := json.MarshalIndent(AgentConfig{Server: serverURL, Token: token}, "", "  ")
+	cfgData, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to format config: %w", err)
 	}
@@ -88,13 +98,19 @@ func UninstallService() error {
 		_ = os.RemoveAll("/etc/sv/justping-agent")
 	case InitSysVinit:
 		_ = exec.Command("/etc/init.d/justping-agent", "stop").Run()
-		_ = exec.Command("update-rc.d", "-f", "justping-agent", "remove").Run()
+		if _, err := exec.LookPath("update-rc.d"); err == nil {
+			_ = exec.Command("update-rc.d", "-f", "justping-agent", "remove").Run()
+		} else if _, err := exec.LookPath("chkconfig"); err == nil {
+			_ = exec.Command("chkconfig", "--del", "justping-agent").Run()
+		}
 		_ = os.Remove("/etc/init.d/justping-agent")
 	}
 
-	_ = os.Remove("/etc/justping/agent.json")
+	_ = os.RemoveAll("/etc/justping")
 	_ = os.Remove("/usr/local/bin/justping-agent")
 	_ = os.Remove("/usr/bin/justping-agent")
+	_ = os.Remove("/run/justping-agent.pid")
+	_ = os.Remove("/var/run/justping-agent.pid")
 	fmt.Println("[Installer] JustPing agent uninstalled successfully.")
 	return nil
 }

@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	probing "github.com/prometheus-community/pro-bing"
 	"github.com/guimc233/JustPing/shared/protocol"
+	probing "github.com/prometheus-community/pro-bing"
 )
 
 type Pinger struct {
