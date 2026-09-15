@@ -144,6 +144,9 @@ func adminDeleteTarget(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	// Clean up associated historical metrics to prevent orphan rows
+	_ = db.DB.Delete(&model.PingMetric{}, "target_id = ?", id)
+
 	ws.DefaultHub.BroadcastTargetSync()
 	c.JSON(http.StatusOK, gin.H{"message": "Target deleted"})
 }

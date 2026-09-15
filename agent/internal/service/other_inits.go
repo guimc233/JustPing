@@ -52,10 +52,20 @@ exec %s --config /etc/justping/agent.json
 		return err
 	}
 
-	if _, err := os.Stat("/var/service"); err == nil {
-		_ = os.Symlink(svDir, "/var/service/justping-agent")
-		fmt.Println("[Installer] Service linked in /var/service via runit!")
+	serviceDir := "/var/service"
+	if _, err := os.Stat("/etc/service"); err == nil {
+		serviceDir = "/etc/service"
+	} else if _, err := os.Stat("/var/service"); err != nil {
+		return fmt.Errorf("runit service directory (/var/service or /etc/service) not found")
 	}
+
+	linkTarget := filepath.Join(serviceDir, "justping-agent")
+	_ = os.Remove(linkTarget)
+	if err := os.Symlink(svDir, linkTarget); err != nil {
+		return fmt.Errorf("failed to link runit service: %w", err)
+	}
+	_ = exec.Command("sv", "up", "justping-agent").Run()
+	fmt.Println("[Installer] Service linked and started via runit!")
 	return nil
 }
 
@@ -122,14 +132,18 @@ func installWindows(binPath, serverURL, token string) error {
 		appData = "C:\\ProgramData"
 	}
 	cfgDir := filepath.Join(appData, "JustPing")
-	_ = os.MkdirAll(cfgDir, 0755)
+	if err := os.MkdirAll(cfgDir, 0755); err != nil {
+		return err
+	}
 	cfgFile := filepath.Join(cfgDir, "agent.json")
 
 	cfgData, err := json.MarshalIndent(AgentConfig{Server: serverURL, Token: token}, "", "  ")
 	if err != nil {
 		return err
 	}
-	_ = os.WriteFile(cfgFile, cfgData, 0600)
+	if err := os.WriteFile(cfgFile, cfgData, 0600); err != nil {
+		return err
+	}
 
 	binCmd := fmt.Sprintf("\"%s\" --config \"%s\"", binPath, cfgFile)
 	if err := exec.Command("sc", "create", "JustPingAgent", "binPath=", binCmd, "start=", "auto").Run(); err != nil {

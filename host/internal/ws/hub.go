@@ -43,13 +43,28 @@ func (h *Hub) Unregister(agentID string, ac *AgentConn) {
 	defer h.mu.Unlock()
 	current, exists := h.agents[agentID]
 	if !exists || current != ac {
-		return // Stale socket exiting after a successor was already registered
+		return
 	}
 
 	delete(h.agents, agentID)
 	ac.Close()
 	log.Printf("[WS Hub] Agent %s disconnected. Online probes: %d\n", agentID, len(h.agents))
 
+	_ = db.DB.Model(&model.Agent{}).Where("id = ?", agentID).Updates(map[string]any{
+		"is_online":    false,
+		"last_seen_at": time.Now(),
+	})
+}
+
+// Disconnect forcefully closes and removes the active connection for an agent (token rotation or deletion)
+func (h *Hub) Disconnect(agentID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if ac, exists := h.agents[agentID]; exists {
+		delete(h.agents, agentID)
+		ac.Close()
+		log.Printf("[WS Hub] Force disconnected agent %s\n", agentID)
+	}
 	_ = db.DB.Model(&model.Agent{}).Where("id = ?", agentID).Updates(map[string]any{
 		"is_online":    false,
 		"last_seen_at": time.Now(),

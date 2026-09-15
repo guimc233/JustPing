@@ -16,6 +16,7 @@ import {
   Power,
   Terminal,
   ShieldCheck,
+  KeyRound,
 } from 'lucide-react'
 
 interface AdminPanelProps {
@@ -138,6 +139,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
       setEnrollResult(data)
       setNewAgentName('')
       loadAgents()
+    }
+  }
+
+  const handleRotateToken = async (id: string, name: string) => {
+    if (!confirm(`Rotate enrollment token for probe "${name}"? Active connection will be closed.`)) return
+    const res = await fetch(`/api/admin/agents/${id}/rotate-token`, { method: 'POST' })
+    if (res.ok) {
+      const data = await res.json()
+      setEnrollResult(data)
+      setShowAddAgent(true)
+      loadAgents()
+    } else {
+      const err = await res.json().catch(() => ({}))
+      alert(err.error || 'Failed to rotate token')
     }
   }
 
@@ -440,7 +455,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                         {a.is_online ? 'Online' : 'Offline'}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right space-x-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleRotateToken(a.id, a.name)}
+                        title="Rotate Token"
+                        className="text-amber-400 hover:text-amber-300"
+                      >
+                        <KeyRound className="size-3.5" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -464,14 +488,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
           <CardHeader>
             <CardTitle>Trusted Email Whitelist</CardTitle>
             <CardDescription>
-              Users whose primary or verified GitHub account email is in this list are allowed to log into the Admin Panel.
+              Users whose verified OAuth email (GitHub, Google, or OIDC) is in this list are allowed to log into the Admin Panel.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <form onSubmit={handleAddWhitelist} className="flex flex-col sm:flex-row gap-2">
               <Input
                 type="email"
-                placeholder="GitHub verified email (e.g. user@example.com)"
+                placeholder="Verified email address (e.g. user@example.com)"
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
                 required
@@ -530,7 +554,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
           <CardHeader>
             <CardTitle>System & OAuth Settings</CardTitle>
             <CardDescription>
-              Manage GitHub OAuth credentials and data retention rules.
+              Manage OAuth credentials (GitHub, Google, OIDC) and data retention rules.
             </CardDescription>
           </CardHeader>
           <CardContent>

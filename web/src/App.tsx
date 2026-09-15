@@ -19,10 +19,13 @@ export function App() {
     const email = params.get('email')
     if (error === 'email_not_whitelisted') {
       setLoginError(
-        `Login Rejected: Your verified GitHub email (${email || 'unknown'}) is not in the whitelist. Please contact the administrator.`
+        `Login Rejected: Your verified email (${email || 'account'}) is not in the whitelist. Please contact the administrator.`
       )
     } else if (error) {
       setLoginError(`Authentication failed: ${error}`)
+    }
+    if (error || email) {
+      window.history.replaceState({}, document.title, window.location.pathname)
     }
   }, [])
 

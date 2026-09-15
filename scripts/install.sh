@@ -98,41 +98,56 @@ CHECKSUM_URL="${BASE_URL}/SHA256SUMS.txt"
 echo -e "${BLUE}==> Downloading JustPing agent binary from GitHub Release...${NC}"
 if command -v curl >/dev/null 2>&1; then
     curl -fsSL -o "${TMP_BIN}" "${DOWNLOAD_URL}"
-    curl -fsSL -o "${CHECKSUMS_FILE}" "${CHECKSUM_URL}" || true
+    curl -fsSL -o "${CHECKSUMS_FILE}" "${CHECKSUM_URL}"
 elif command -v wget >/dev/null 2>&1; then
     wget -qO "${TMP_BIN}" "${DOWNLOAD_URL}"
-    wget -qO "${CHECKSUMS_FILE}" "${CHECKSUM_URL}" || true
+    wget -qO "${CHECKSUMS_FILE}" "${CHECKSUM_URL}"
 else
     echo -e "${RED}Error: Neither curl nor wget is installed.${NC}"
     exit 1
 fi
 
-if [ -s "${CHECKSUMS_FILE}" ]; then
-    echo -e "${BLUE}==> Verifying SHA256 checksum...${NC}"
-    EXPECTED_HASH="$(grep "${BIN_NAME}\$" "${CHECKSUMS_FILE}" | awk '{print $1}' || true)"
-    if [ -n "${EXPECTED_HASH}" ]; then
-        if command -v sha256sum >/dev/null 2>&1; then
-            ACTUAL_HASH="$(sha256sum "${TMP_BIN}" | awk '{print $1}')"
-        elif command -v shasum >/dev/null 2>&1; then
-            ACTUAL_HASH="$(shasum -a 256 "${TMP_BIN}" | awk '{print $1}')"
-        else
-            ACTUAL_HASH=""
-        fi
-
-        if [ -n "${ACTUAL_HASH}" ] && [ "${EXPECTED_HASH}" != "${ACTUAL_HASH}" ]; then
-            echo -e "${RED}Error: Checksum verification failed for downloaded binary!${NC}"
-            exit 1
-        fi
-        echo -e "${GREEN}Checksum verified successfully.${NC}"
-    fi
+if [ ! -s "${CHECKSUMS_FILE}" ]; then
+    echo -e "${RED}Error: Failed to retrieve SHA256 checksums file from ${CHECKSUM_URL}.${NC}"
+    exit 1
 fi
+
+echo -e "${BLUE}==> Verifying SHA256 checksum...${NC}"
+EXPECTED_HASH="$(grep -E "[\t ]${BIN_NAME}\$" "${CHECKSUMS_FILE}" | awk '{print $1}' || true)"
+if [ -z "${EXPECTED_HASH}" ]; then
+    echo -e "${RED}Error: Checksum for ${BIN_NAME} not found in SHA256SUMS.txt!${NC}"
+    exit 1
+fi
+
+if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL_HASH="$(sha256sum "${TMP_BIN}" | awk '{print $1}')"
+elif command -v shasum >/dev/null 2>&1; then
+    ACTUAL_HASH="$(shasum -a 256 "${TMP_BIN}" | awk '{print $1}')"
+else
+    echo -e "${RED}Error: Neither sha256sum nor shasum tool available on this system.${NC}"
+    exit 1
+fi
+
+if [ "${EXPECTED_HASH}" != "${ACTUAL_HASH}" ]; then
+    echo -e "${RED}Error: Checksum verification mismatch! (Expected: ${EXPECTED_HASH}, Got: ${ACTUAL_HASH})${NC}"
+    exit 1
+fi
+echo -e "${GREEN}Checksum verified successfully.${NC}"
 
 chmod +x "${TMP_BIN}"
 
+# Write temporary 0600 config file so secret token never appears on process argv
+CFG_TMP="${TMP_DIR}/config.json"
+cat <<EOF > "${CFG_TMP}"
+{
+  "server": "${SERVER_URL}",
+  "token": "${TOKEN}"
+}
+EOF
+chmod 0600 "${CFG_TMP}"
+
 echo -e "${BLUE}==> Installing agent service...${NC}"
-export JUSTPING_TOKEN="${TOKEN}"
-export JUSTPING_SERVER="${SERVER_URL}"
-"${TMP_BIN}" --install --server "${SERVER_URL}" --token "${TOKEN}"
+"${TMP_BIN}" --install --config "${CFG_TMP}"
 
 echo -e "${GREEN}=====================================================${NC}"
 echo -e "${GREEN}  JustPing Agent successfully installed and verified! ${NC}"

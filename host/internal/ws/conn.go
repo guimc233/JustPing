@@ -129,34 +129,59 @@ func (ac *AgentConn) handleIncomingMessage(env protocol.Envelope) {
 			return
 		}
 
-		if len(report.Results) > 0 {
-			metrics := make([]model.PingMetric, 0, len(report.Results))
-			for _, r := range report.Results {
-				ts := r.Timestamp
-				if ts.IsZero() {
-					ts = time.Now()
-				}
-				metrics = append(metrics, model.PingMetric{
-					AgentID:     ac.AgentID,
-					TargetID:    r.TargetID,
-					Timestamp:   ts,
-					PacketsSent: r.PacketsSent,
-					PacketsRecv: r.PacketsRecv,
-					LossPct:     r.LossPct,
-					MinRTT:      r.MinRTT,
-					MaxRTT:      r.MaxRTT,
-					AvgRTT:      r.AvgRTT,
-					Jitter:      r.Jitter,
-					StdDev:      r.StdDev,
-					ErrorMsg:    r.ErrorMsg,
-				})
-			}
-			_ = db.DB.CreateInBatches(metrics, 100)
+		var count int64
+		if err := db.DB.Model(&model.Agent{}).Where("id = ?", ac.AgentID).Count(&count).Error; err != nil || count == 0 {
+			ac.Close()
+			return
 		}
 
-		_ = db.DB.Model(&model.Agent{}).Where("id = ?", ac.AgentID).Updates(map[string]any{
-			"is_online":    true,
-			"last_seen_at": time.Now(),
+		ac.persistPingReport(report)
+	}
+}
+
+func (ac *AgentConn) persistPingReport(report protocol.PingReportPayload) {
+	if len(report.Results) == 0 {
+		return
+	}
+
+	var validTargets []string
+	db.DB.Model(&model.Target{}).Where("enabled = ?", true).Pluck("id", &validTargets)
+	targetMap := make(map[string]bool, len(validTargets))
+	for _, id := range validTargets {
+		targetMap[id] = true
+	}
+
+	now := time.Now()
+	metrics := make([]model.PingMetric, 0, len(report.Results))
+	for _, r := range report.Results {
+		if !targetMap[r.TargetID] {
+			continue
+		}
+		ts := r.Timestamp
+		if ts.IsZero() || ts.After(now.Add(5*time.Minute)) || ts.Before(now.Add(-48*time.Hour)) {
+			ts = now
+		}
+		metrics = append(metrics, model.PingMetric{
+			AgentID:     ac.AgentID,
+			TargetID:    r.TargetID,
+			Timestamp:   ts,
+			PacketsSent: r.PacketsSent,
+			PacketsRecv: r.PacketsRecv,
+			LossPct:     r.LossPct,
+			MinRTT:      r.MinRTT,
+			MaxRTT:      r.MaxRTT,
+			AvgRTT:      r.AvgRTT,
+			Jitter:      r.Jitter,
+			StdDev:      r.StdDev,
+			ErrorMsg:    r.ErrorMsg,
 		})
 	}
+	if len(metrics) > 0 {
+		_ = db.DB.CreateInBatches(metrics, 100)
+	}
+
+	_ = db.DB.Model(&model.Agent{}).Where("id = ?", ac.AgentID).Updates(map[string]any{
+		"is_online":    true,
+		"last_seen_at": now,
+	})
 }

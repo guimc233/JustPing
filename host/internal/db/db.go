@@ -1,6 +1,8 @@
 package db
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"os"
@@ -10,12 +12,13 @@ import (
 	"github.com/guimc233/JustPing/host/internal/model"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 )
 
 var DB *gorm.DB
 
-// InitDB initializes PostgreSQL connection and runs automatic schema migrations
+// InitDB initializes PostgreSQL connection, runs migrations, and seeds baseline configuration
 func InitDB() (*gorm.DB, error) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -45,7 +48,6 @@ func InitDB() (*gorm.DB, error) {
 	sqlDB.SetMaxOpenConns(100)
 	sqlDB.SetConnMaxLifetime(time.Hour)
 
-	// Run auto migrations
 	err = DB.AutoMigrate(
 		&model.SystemSetting{},
 		&model.EmailWhitelist{},
@@ -58,8 +60,41 @@ func InitDB() (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to auto-migrate database: %w", err)
 	}
 
+	// Seed baseline settings (is_initialized & jwt_secret) atomically so FOR UPDATE has a row
+	if err := seedBaselineSettings(DB); err != nil {
+		return nil, fmt.Errorf("failed to seed baseline settings: %w", err)
+	}
+
 	log.Println("[DB] Database connected and schema migrated successfully")
 	return DB, nil
+}
+
+func seedBaselineSettings(tx *gorm.DB) error {
+	// 1. Ensure is_initialized exists
+	initSetting := model.SystemSetting{
+		Key:       "is_initialized",
+		Value:     "false",
+		UpdatedAt: time.Now(),
+	}
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&initSetting).Error; err != nil {
+		return err
+	}
+
+	// 2. Ensure jwt_secret is initialized consistently across replicas
+	envSecret := os.Getenv("JWT_SECRET")
+	if envSecret != "" {
+		_ = SetSetting("jwt_secret", envSecret)
+	} else {
+		var s model.SystemSetting
+		if err := tx.Where("key = ?", "jwt_secret").First(&s).Error; err != nil {
+			b := make([]byte, 32)
+			_, _ = rand.Read(b)
+			genSecret := hex.EncodeToString(b)
+			newSecret := model.SystemSetting{Key: "jwt_secret", Value: genSecret, UpdatedAt: time.Now()}
+			_ = tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&newSecret).Error
+		}
+	}
+	return nil
 }
 
 // GetSetting retrieves a system setting by key

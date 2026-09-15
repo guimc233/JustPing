@@ -27,18 +27,20 @@ type JWTClaims struct {
 	jwt.RegisteredClaims
 }
 
-// GetJWTSecret gets or lazily initializes the JWT signing secret
+// GetJWTSecret gets the configured or seeded JWT signing secret
 func GetJWTSecret() []byte {
 	secret := db.GetSetting("jwt_secret")
-	if secret == "" {
-		secret = os.Getenv("JWT_SECRET")
+	if secret != "" {
+		return []byte(secret)
 	}
-	if secret == "" {
-		b := make([]byte, 32)
-		_, _ = rand.Read(b)
-		secret = hex.EncodeToString(b)
-		_ = db.SetSetting("jwt_secret", secret)
+	secret = os.Getenv("JWT_SECRET")
+	if secret != "" {
+		return []byte(secret)
 	}
+	b := make([]byte, 32)
+	_, _ = rand.Read(b)
+	secret = hex.EncodeToString(b)
+	_ = db.SetSetting("jwt_secret", secret)
 	return []byte(secret)
 }
 

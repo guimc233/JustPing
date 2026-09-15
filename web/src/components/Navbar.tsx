@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Activity, ShieldCheck, LogIn, LogOut, Server, Radio, Settings, ChevronDown } from 'lucide-react'
+import { Activity, ShieldCheck, LogIn, LogOut, Radio, Settings, ChevronDown, Menu, X } from 'lucide-react'
 import { Button } from './ui/button'
 
 interface NavbarProps {
@@ -31,6 +31,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
 }) => {
   const [showLoginMenu, setShowLoginMenu] = useState(false)
+  const [showMobileMenu, setShowMobileMenu] = useState(false)
 
   const providers: { name: string; url: string }[] = []
   if (setupStatus?.github_configured !== false) {
@@ -52,7 +53,10 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Logo & Brand */}
         <div className="flex items-center gap-6">
           <button
-            onClick={() => setActiveTab('dashboard')}
+            onClick={() => {
+              setActiveTab('dashboard')
+              setShowMobileMenu(false)
+            }}
             className="flex items-center gap-2 font-bold tracking-tight text-foreground transition hover:opacity-80 cursor-pointer"
           >
             <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
@@ -65,7 +69,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </span>
           </button>
 
-          {/* Navigation Links */}
+          {/* Desktop Navigation Links */}
           <nav className="hidden md:flex items-center gap-1 text-sm">
             <Button
               variant={activeTab === 'dashboard' ? 'secondary' : 'ghost'}
@@ -83,14 +87,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Radio className="size-4 mr-1.5 text-blue-400" />
               Matrix
             </Button>
-            <Button
-              variant={activeTab === 'agents' ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={() => setActiveTab('agents')}
-            >
-              <Server className="size-4 mr-1.5 text-purple-400" />
-              Nodes
-            </Button>
             {currentUser.authenticated && (
               <Button
                 variant={activeTab === 'admin' ? 'secondary' : 'ghost'}
@@ -104,10 +100,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           </nav>
         </div>
 
-        {/* User / Login status */}
-        <div className="flex items-center gap-3">
+        {/* User / Login status & Mobile Toggle */}
+        <div className="flex items-center gap-2">
           {currentUser.authenticated ? (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <div className="hidden sm:flex items-center gap-2 text-right">
                 {currentUser.user?.avatar_url && (
                   <img
@@ -180,8 +176,62 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </div>
           )}
+
+          {/* Mobile hamburger button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden size-8"
+            onClick={() => setShowMobileMenu(!showMobileMenu)}
+          >
+            {showMobileMenu ? <X className="size-4" /> : <Menu className="size-4" />}
+          </Button>
         </div>
       </div>
+
+      {/* Mobile dropdown menu */}
+      {showMobileMenu && (
+        <div className="md:hidden border-t border-border/60 bg-background/95 px-4 py-3 space-y-1">
+          <Button
+            variant={activeTab === 'dashboard' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="w-full justify-start"
+            onClick={() => {
+              setActiveTab('dashboard')
+              setShowMobileMenu(false)
+            }}
+          >
+            <Activity className="size-4 mr-2 text-primary" />
+            Probes
+          </Button>
+          <Button
+            variant={activeTab === 'matrix' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="w-full justify-start"
+            onClick={() => {
+              setActiveTab('matrix')
+              setShowMobileMenu(false)
+            }}
+          >
+            <Radio className="size-4 mr-2 text-blue-400" />
+            Matrix
+          </Button>
+          {currentUser.authenticated && (
+            <Button
+              variant={activeTab === 'admin' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="w-full justify-start"
+              onClick={() => {
+                setActiveTab('admin')
+                setShowMobileMenu(false)
+              }}
+            >
+              <ShieldCheck className="size-4 mr-2 text-amber-400" />
+              Admin Panel
+            </Button>
+          )}
+        </div>
+      )}
     </header>
   )
 }

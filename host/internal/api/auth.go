@@ -40,13 +40,13 @@ func githubCallback(c *gin.Context) {
 
 	token, err := cfg.Exchange(c.Request.Context(), code)
 	if err != nil {
-		c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("/login?error=token_exchange_failed&details=%s", err.Error()))
+		c.Redirect(http.StatusTemporaryRedirect, "/login?error=token_exchange_failed")
 		return
 	}
 
 	ghUser, verifiedEmails, err := auth.FetchGitHubUserInfo(c.Request.Context(), token)
 	if err != nil {
-		c.Redirect(http.StatusTemporaryRedirect, fmt.Sprintf("/login?error=fetch_user_failed&details=%s", err.Error()))
+		c.Redirect(http.StatusTemporaryRedirect, "/login?error=fetch_user_failed")
 		return
 	}
 

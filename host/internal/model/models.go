@@ -24,8 +24,8 @@ type EmailWhitelist struct {
 // User represents an administrator authenticated via OAuth
 type User struct {
 	ID          uint      `gorm:"primaryKey" json:"id"`
-	Provider    string    `gorm:"size:32;default:'github'" json:"provider"`
-	ProviderID  string    `gorm:"size:128;index" json:"provider_id"`
+	Provider    string    `gorm:"size:32;not null;uniqueIndex:idx_provider_user,priority:1" json:"provider"`
+	ProviderID  string    `gorm:"size:128;not null;uniqueIndex:idx_provider_user,priority:2" json:"provider_id"`
 	GitHubID    int64     `gorm:"index" json:"github_id"`
 	Username    string    `gorm:"size:128;not null" json:"username"`
 	Email       string    `gorm:"size:255;not null" json:"email"`

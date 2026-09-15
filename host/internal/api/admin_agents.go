@@ -85,7 +85,7 @@ func adminRotateAgentToken(c *gin.Context) {
 	}
 
 	// Kick active connection to enforce new token
-	ws.DefaultHub.Unregister(agent.ID, nil)
+	ws.DefaultHub.Disconnect(agent.ID)
 
 	appURL := db.GetSetting("app_url")
 	if appURL == "" {
@@ -129,7 +129,7 @@ func adminUpdateAgent(c *gin.Context) {
 
 func adminDeleteAgent(c *gin.Context) {
 	id := c.Param("id")
-	ws.DefaultHub.Unregister(id, nil)
+	ws.DefaultHub.Disconnect(id)
 	db.DB.Delete(&model.Agent{}, "id = ?", id)
 	db.DB.Delete(&model.PingMetric{}, "agent_id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"message": "Agent removed"})
