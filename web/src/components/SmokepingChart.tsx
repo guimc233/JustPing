@@ -16,8 +16,8 @@ import { Flame, AlertTriangle } from 'lucide-react'
 export interface MetricDataPoint {
   timestamp: string | Date
   avg_rtt_ms: number
-  min_rtt_ms: number
-  max_rtt_ms: number
+  min_rtt_ms?: number
+  max_rtt_ms?: number
   jitter_ms: number
   loss_pct: number
   packets_sent?: number
@@ -58,8 +58,6 @@ interface TooltipPayloadItem {
     time: string
     timestamp: string
     avg: number | null
-    min: number | null
-    max: number | null
     jitter: number
     loss: number
     isOutage: boolean
@@ -102,17 +100,8 @@ const SmokepingTooltip = ({
       ) : (
         <div className="space-y-1.5 font-mono">
           <div className="flex items-center justify-between gap-4">
-            <span className="text-zinc-400">Median / Avg RTT:</span>
+            <span className="text-zinc-400">Latency (RTT):</span>
             <span className="font-bold text-sky-400">{d.avg?.toFixed(2)} ms</span>
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-zinc-400">Dispersion (Smoke):</span>
-            <span className="text-zinc-200">
-              {d.min?.toFixed(1)} ~ {d.max?.toFixed(1)} ms
-              <span className="text-zinc-400 text-[10px] ml-1">
-                (Δ{((d.max ?? 0) - (d.min ?? 0)).toFixed(1)}ms)
-              </span>
-            </span>
           </div>
           <div className="flex items-center justify-between gap-4">
             <span className="text-zinc-400">Jitter (RFC 3550):</span>
@@ -146,7 +135,7 @@ export const SmokepingChart: React.FC<SmokepingChartProps> = ({
     return (
       <div className="h-[280px] flex flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
         <Flame className="size-5 text-primary animate-pulse" />
-        <span>Synthesizing SmokePing dispersion metrics...</span>
+        <span>Loading latency metrics...</span>
       </div>
     )
   }
@@ -162,12 +151,11 @@ export const SmokepingChart: React.FC<SmokepingChartProps> = ({
   // Find max latency to size the 100% loss outage pillar appropriately
   let maxLatency = 50
   for (const pt of data) {
-    if (pt.max_rtt_ms > maxLatency) maxLatency = pt.max_rtt_ms
     if (pt.avg_rtt_ms > maxLatency) maxLatency = pt.avg_rtt_ms
   }
   const outageHeight = Math.ceil(maxLatency * 1.15)
 
-  // Transform into SmokePing multi-layer dispersion representation
+  // Transform into continuous latency timeline with SmokePing loss colors
   const chartPoints = data.map((d) => {
     const isOutage = d.loss_pct >= 100
     const timeStr = new Date(d.timestamp).toLocaleTimeString([], {
@@ -175,30 +163,17 @@ export const SmokepingChart: React.FC<SmokepingChartProps> = ({
       minute: '2-digit',
     })
 
-    const min = d.min_rtt_ms
-    const max = d.max_rtt_ms
     const avg = d.avg_rtt_ms
-    const spread = d.jitter_ms || 0
-
-    // Core smoke bounds (interquartile / std dev equivalent)
-    const coreLower = Math.max(min, avg - spread)
-    const coreUpper = Math.min(max, avg + spread)
-
     const lossColor = getSmokepingLossColor(d.loss_pct)
 
     return {
       time: timeStr,
       timestamp: String(d.timestamp),
       avg: isOutage ? null : avg,
-      min: isOutage ? null : min,
-      max: isOutage ? null : max,
       jitter: d.jitter_ms,
       loss: d.loss_pct,
       isOutage,
       lossColor,
-      // Range areas: [lowerBound, upperBound]
-      outerSmoke: isOutage ? null : [min, max],
-      innerSmoke: isOutage ? null : [coreLower, coreUpper],
       // Full height pillar when 100% loss occurs
       outage: isOutage ? outageHeight : null,
       // Bottom loss indicator tick height
@@ -216,6 +191,13 @@ export const SmokepingChart: React.FC<SmokepingChartProps> = ({
             data={chartPoints}
             margin={{ top: 10, right: 12, left: -20, bottom: 0 }}
           >
+            <defs>
+              <linearGradient id="latencyGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.25} />
+                <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.0} />
+              </linearGradient>
+            </defs>
+
             <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
             <XAxis
               dataKey="time"
@@ -251,42 +233,27 @@ export const SmokepingChart: React.FC<SmokepingChartProps> = ({
               name="100% Loss Outage"
             />
 
-            {/* Outer Smoke: Dispersion whisker between Min and Max RTT */}
+            {/* Latency Gradient Area */}
             <Area
               yAxisId="rtt"
               type="monotone"
-              dataKey="outerSmoke"
+              dataKey="avg"
               stroke="none"
-              fill="#64748b"
-              fillOpacity={0.22}
+              fill="url(#latencyGradient)"
               isAnimationActive={false}
-              name="Smoke (Min-Max)"
               connectNulls={false}
             />
 
-            {/* Inner Smoke: Dense core around median / avg */}
-            <Area
-              yAxisId="rtt"
-              type="monotone"
-              dataKey="innerSmoke"
-              stroke="none"
-              fill="#94a3b8"
-              fillOpacity={0.45}
-              isAnimationActive={false}
-              name="Smoke (Core)"
-              connectNulls={false}
-            />
-
-            {/* Center Median / Avg Line */}
+            {/* Latency Line */}
             <Line
               yAxisId="rtt"
               type="monotone"
               dataKey="avg"
               stroke="#38bdf8"
-              strokeWidth={1.75}
+              strokeWidth={2}
               dot={false}
               isAnimationActive={false}
-              name="Median / Avg Latency"
+              name="Latency (RTT)"
               connectNulls={false}
             />
 
@@ -325,10 +292,10 @@ export const SmokepingChart: React.FC<SmokepingChartProps> = ({
 
         <div className="flex items-center gap-3 text-[10px]">
           <span className="flex items-center gap-1">
-            <span className="size-2 rounded-sm bg-sky-400" /> Median Latency
+            <span className="size-2 rounded-sm bg-sky-400" /> Latency (RTT)
           </span>
           <span className="flex items-center gap-1">
-            <span className="size-2 rounded-sm bg-slate-400/50" /> Smoke Plume (Dispersion)
+            <span className="size-2 rounded-sm bg-red-500" /> 100% Outage
           </span>
         </div>
       </div>
