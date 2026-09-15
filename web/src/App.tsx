@@ -26,25 +26,31 @@ export function App() {
     }
   }, [])
 
+  const [statusError, setStatusError] = useState<string | null>(null)
+
   const checkStatus = async () => {
     try {
+      setStatusError(null)
       const [setupRes, authRes] = await Promise.all([
         fetch('/api/setup/status'),
         fetch('/api/auth/me'),
       ])
 
+      if (!setupRes.ok) {
+        throw new Error(`Failed to query setup status (HTTP ${setupRes.status})`)
+      }
+
       const setupData = await setupRes.json()
-      const authData = await authRes.json()
+      const authData = await authRes.json().catch(() => ({ authenticated: false }))
 
       setSetupStatus(setupData)
       setCurrentUser(authData)
 
-      // If already authenticated and URL was /admin, jump to admin tab
       if (authData.authenticated && window.location.pathname.startsWith('/admin')) {
         setActiveTab('admin')
       }
-    } catch (err) {
-      console.error('Failed to initialize platform status:', err)
+    } catch (err: any) {
+      setStatusError(err.message || 'Failed to connect to JustPing host server')
     } finally {
       setLoading(false)
     }
@@ -68,12 +74,29 @@ export function App() {
     )
   }
 
+  if (statusError) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background p-4 text-center">
+        <div className="text-destructive font-semibold">Service Unavailable</div>
+        <div className="text-xs text-muted-foreground max-w-sm">{statusError}</div>
+        <button
+          onClick={() => {
+            setLoading(true)
+            checkStatus()
+          }}
+          className="rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          Retry Connection
+        </button>
+      </div>
+    )
+  }
+
   // 1. Initial Setup Wizard required
   if (setupStatus && !setupStatus.initialized) {
     return (
       <SetupWizard
         appUrl={setupStatus.app_url}
-        callbackUrl={setupStatus.oauth_callback_url}
         onComplete={checkStatus}
       />
     )
@@ -83,6 +106,7 @@ export function App() {
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Navbar
         currentUser={currentUser}
+        setupStatus={setupStatus}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onLogout={handleLogout}

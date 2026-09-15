@@ -91,7 +91,11 @@ func FetchGenericOIDCUserInfo(ctx context.Context, token *oauth2.Token) (*AuthUs
 		return nil, err
 	}
 
-	email := strings.ToLower(info.Email)
+	if info.EmailVerified == nil || !*info.EmailVerified {
+		return nil, errors.New("oidc email is not verified by provider")
+	}
+
+	email := strings.ToLower(strings.TrimSpace(info.Email))
 	if email == "" {
 		return nil, errors.New("no email found in oidc userinfo")
 	}

@@ -2,7 +2,6 @@ package service
 
 import (
 	"os"
-	"os/exec"
 	"runtime"
 )
 
@@ -18,17 +17,14 @@ const (
 	InitUnknown  InitType = "unknown"
 )
 
-// DetectInit detects the Linux init system in use
+// DetectInit detects the true active init system
 func DetectInit() InitType {
 	if runtime.GOOS == "windows" {
 		return InitWindows
 	}
 
-	// 1. systemd
+	// 1. systemd: only true if running PID 1 is systemd and directory exists
 	if _, err := os.Stat("/run/systemd/system"); err == nil {
-		return InitSystemd
-	}
-	if p, err := exec.LookPath("systemctl"); err == nil && p != "" {
 		return InitSystemd
 	}
 

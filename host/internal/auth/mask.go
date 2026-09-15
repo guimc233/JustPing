@@ -26,11 +26,23 @@ func MaskIP(ipStr string) string {
 	return "2001:db8:****:****"
 }
 
-// MaskHost masks a target host (IP or domain)
+// MaskHost masks a target host (IP or internal domain name)
 func MaskHost(host string) string {
 	host = strings.TrimSpace(host)
+	if host == "" {
+		return ""
+	}
 	if net.ParseIP(host) != nil {
 		return MaskIP(host)
 	}
-	return host
+
+	parts := strings.Split(host, ".")
+	if len(parts) == 1 {
+		return "***"
+	}
+	if len(parts) == 2 {
+		return fmt.Sprintf("***.%s", parts[1])
+	}
+	// e.g. db.internal.corp -> ***.internal.corp or service.tokyo.example.com -> ***.example.com
+	return fmt.Sprintf("***.%s.%s", parts[len(parts)-2], parts[len(parts)-1])
 }

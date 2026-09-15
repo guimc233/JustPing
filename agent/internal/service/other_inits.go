@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -26,8 +27,12 @@ start_service() {
 		return err
 	}
 
-	_ = exec.Command("/etc/init.d/justping-agent", "enable").Run()
-	_ = exec.Command("/etc/init.d/justping-agent", "restart").Run()
+	if err := exec.Command("/etc/init.d/justping-agent", "enable").Run(); err != nil {
+		return fmt.Errorf("procd enable failed: %w", err)
+	}
+	if err := exec.Command("/etc/init.d/justping-agent", "restart").Run(); err != nil {
+		return fmt.Errorf("procd restart failed: %w", err)
+	}
 	fmt.Println("[Installer] Service installed and started via OpenWrt procd!")
 	return nil
 }
@@ -104,7 +109,9 @@ exit 0
 		_ = exec.Command("chkconfig", "--add", "justping-agent").Run()
 	}
 
-	_ = exec.Command("/etc/init.d/justping-agent", "start").Run()
+	if err := exec.Command("/etc/init.d/justping-agent", "start").Run(); err != nil {
+		return fmt.Errorf("sysvinit start failed: %w", err)
+	}
 	fmt.Println("[Installer] Service installed and started via SysVinit!")
 	return nil
 }
@@ -118,15 +125,16 @@ func installWindows(binPath, serverURL, token string) error {
 	_ = os.MkdirAll(cfgDir, 0755)
 	cfgFile := filepath.Join(cfgDir, "agent.json")
 
-	cfgJSON := fmt.Sprintf(`{
-  "server": "%s",
-  "token": "%s"
-}
-`, serverURL, token)
-	_ = os.WriteFile(cfgFile, []byte(cfgJSON), 0644)
+	cfgData, err := json.MarshalIndent(AgentConfig{Server: serverURL, Token: token}, "", "  ")
+	if err != nil {
+		return err
+	}
+	_ = os.WriteFile(cfgFile, cfgData, 0600)
 
 	binCmd := fmt.Sprintf("\"%s\" --config \"%s\"", binPath, cfgFile)
-	_ = exec.Command("sc", "create", "JustPingAgent", "binPath=", binCmd, "start=", "auto").Run()
+	if err := exec.Command("sc", "create", "JustPingAgent", "binPath=", binCmd, "start=", "auto").Run(); err != nil {
+		return fmt.Errorf("sc create failed: %w", err)
+	}
 	_ = exec.Command("sc", "start", "JustPingAgent").Run()
 	fmt.Println("[Installer] Windows Service JustPingAgent created and started.")
 	return nil

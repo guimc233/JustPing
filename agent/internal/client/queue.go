@@ -1,21 +1,26 @@
 package client
 
 import (
+	"errors"
 	"log"
+	"time"
 
 	"github.com/guimc233/JustPing/shared/protocol"
 )
 
-// QueueReport enqueues or immediately sends ping results
+// QueueReport enqueues or sends ping results
 func (c *Client) QueueReport(report protocol.PingReportPayload) {
 	c.queueMu.Lock()
 	defer c.queueMu.Unlock()
 
 	c.mu.Lock()
-	isOnline := c.online && c.conn != nil
+	conn := c.conn
+	isOnline := c.online && conn != nil
+	agentID := c.agentID
 	c.mu.Unlock()
 
 	if isOnline {
+		report.AgentID = agentID
 		if err := c.sendEnvelope(protocol.TypePingReport, report); err == nil {
 			return
 		}
@@ -51,13 +56,14 @@ func (c *Client) sendEnvelope(msgType protocol.MessageType, payload any) error {
 	defer c.mu.Unlock()
 
 	if c.conn == nil {
-		return nil
+		return errors.New("websocket connection is nil")
 	}
 
 	env := protocol.Envelope{
 		Type:      msgType,
-		Timestamp: 0,
+		Timestamp: time.Now().Unix(),
 		Payload:   payload,
 	}
+	_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	return c.conn.WriteJSON(env)
 }

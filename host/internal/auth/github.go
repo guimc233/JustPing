@@ -80,25 +80,33 @@ func FetchGitHubUserInfo(ctx context.Context, token *oauth2.Token) (*GitHubUser,
 
 	respEmail, err := client.Get("https://api.github.com/user/emails")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to fetch user emails: %w", err)
 	}
 	defer respEmail.Body.Close()
+	if respEmail.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf("github emails api returned status %d", respEmail.StatusCode)
+	}
 
 	var emails []GitHubEmail
+	if err := json.NewDecoder(respEmail.Body).Decode(&emails); err != nil {
+		return nil, nil, fmt.Errorf("failed to decode user emails: %w", err)
+	}
+
 	var verifiedEmails []string
-	if err := json.NewDecoder(respEmail.Body).Decode(&emails); err == nil {
-		for _, e := range emails {
-			if e.Verified {
-				verifiedEmails = append(verifiedEmails, strings.ToLower(e.Email))
-				if e.Primary && ghUser.Email == "" {
-					ghUser.Email = e.Email
+	for _, e := range emails {
+		if e.Verified {
+			clean := strings.ToLower(strings.TrimSpace(e.Email))
+			if clean != "" {
+				verifiedEmails = append(verifiedEmails, clean)
+				if e.Primary {
+					ghUser.Email = clean
 				}
 			}
 		}
 	}
 
-	if ghUser.Email != "" {
-		verifiedEmails = append(verifiedEmails, strings.ToLower(ghUser.Email))
+	if ghUser.Email == "" && len(verifiedEmails) > 0 {
+		ghUser.Email = verifiedEmails[0]
 	}
 
 	return &ghUser, verifiedEmails, nil

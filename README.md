@@ -10,23 +10,26 @@
 
 ## 🌟 Highlights
 
-- **Modern Web Dashboard**: Built with Vite, React 19, Tailwind CSS v4, and shadcn/ui design patterns with dark mode.
-- **Privacy First (Data Masking)**: Unauthenticated visitors can view ping latency, loss, and jitter without exposing sensitive server IP addresses or internal hostnames.
-- **First-Run Setup Wizard**: On initial startup, an interactive wizard guides you through OAuth configuration and activates the **Superadmin** account.
+- **Privacy First (Data Masking)**: Unauthenticated visitors can view distributed probe performance metrics, jitter, and loss without exposing raw node IP addresses or internal domain names. Metric errors are anonymized to protect internal topology.
+- **First-Run Setup Wizard**: On initial startup, an interactive wizard guides you through OAuth configuration (GitHub, Google, or Generic OIDC) and activates the **Superadmin** account within a secure transaction.
 - **Email Whitelist Authentication**:
   - Supports **GitHub OAuth**, **Google OAuth**, and **Generic OIDC** (compatible with LinuxDo, Keycloak, Casdoor, etc.).
   - Gravatar avatar support for non-GitHub OAuth providers based on verified email hash.
-  - Granular access control: only emails approved in the whitelist are granted administrator privileges.
+  - Strict verification: only verified emails from OAuth identity providers are validated against the whitelist.
+- **Probe Network Quality Centric**:
+  - Focuses on evaluating the network quality of distributed probing nodes against reference targets.
+  - Comprehensive scoring (0-100) and grading (A+ / A / B / C / F) with RFC 3550 interarrival jitter.
 - **Distributed Go Agent**:
-  - Precision ICMP probing: calculates packet loss, min/max/avg RTT, standard deviation, and **RFC 3550 Interarrival Jitter**.
-  - WebSocket over TLS (WSS) persistent communication with automatic reconnection and offline ring buffering.
-  - Wide architecture support: `amd64`, `386`, `arm64`, `armv7/v6/v5`, `riscv64`, `mips/mipsel/mips64/mips64el`, `ppc64le`, `s390x`.
-- **Universal Linux Service Installer**:
-  - One-line installation script (`install.sh`) with automatic architecture detection.
+  - Multi-target independent interval scheduling (`interval_sec`).
+  - Precision ICMP probing with automatic raw socket / privileged fallback.
+  - WebSocket over TLS (WSS) persistent communication with offline queueing.
+  - Wide architecture support: `amd64`, `386`, `arm64`, `armv7/v6/v5`, `riscv64`, `mips/mipsle` (softfloat & hardfloat), `mips64/mips64le`, `ppc64le`, `s390x`.
+- **Universal Verified Linux Service Installer**:
+  - One-line verified installation script (`install.sh`) with SHA256 checksum verification and secure temporary directories.
   - Native service integration across **systemd**, **OpenRC** (Alpine/Gentoo), **procd** (OpenWrt), **runit** (Void Linux), and legacy **SysVinit**.
 - **Automated CI/CD**:
   - Multi-arch Docker image published to GitHub Container Registry (`ghcr.io/guimc233/justping`).
-  - Automated binary builds for Linux and Windows across all target architectures.
+  - Automated binary builds for Linux and Windows across all target architectures with embedded web UI assets.
 
 ---
 

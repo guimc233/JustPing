@@ -50,7 +50,6 @@ func main() {
 		return
 	}
 
-	// Resolve config
 	serverURL := *serverFlag
 	token := *tokenFlag
 
@@ -63,10 +62,7 @@ func main() {
 
 	cfgPath := *configFlag
 	if cfgPath == "" {
-		candidates := []string{
-			"/etc/justping/agent.json",
-			"agent.json",
-		}
+		candidates := []string{"/etc/justping/agent.json", "agent.json"}
 		for _, c := range candidates {
 			if _, err := os.Stat(c); err == nil {
 				cfgPath = c
@@ -119,51 +115,29 @@ func main() {
 	defer cancel()
 
 	p := pinger.NewPinger()
-	c := client.NewClient(client.Config{
-		ServerURL: serverURL,
-		Token:     token,
-		Version:   Version,
-	}, p)
+	var sched *TargetScheduler
 
+	c := client.NewClient(
+		client.Config{ServerURL: serverURL, Token: token, Version: Version},
+		p,
+		func(targets []protocol.TargetConfig) {
+			if sched != nil {
+				sched.SyncTargets(targets)
+			}
+		},
+	)
+
+	sched = NewTargetScheduler(ctx, p, c)
 	c.Start(ctx)
 
-	// Ping scheduling ticker (every 60s)
-	go func() {
-		ticker := time.NewTicker(60 * time.Second)
-		defer ticker.Stop()
-
-		// Initial round after 5 seconds
-		time.Sleep(5 * time.Second)
-		results := p.PingAll(ctx)
-		if len(results) > 0 {
-			c.QueueReport(protocol.PingReportPayload{Results: results})
-		}
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				targets := p.GetTargets()
-				if len(targets) == 0 {
-					continue
-				}
-				results := p.PingAll(ctx)
-				if len(results) > 0 {
-					c.QueueReport(protocol.PingReportPayload{Results: results})
-				}
-			}
-		}
-	}()
-
-	// Wait for termination signal
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	<-sigCh
 
 	log.Println("Shutting down JustPing Agent...")
+	sched.Stop()
 	cancel()
 	c.Stop()
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 	log.Println("Agent stopped.")
 }

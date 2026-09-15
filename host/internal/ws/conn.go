@@ -2,6 +2,8 @@ package ws
 
 import (
 	"encoding/json"
+	"errors"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -15,9 +17,35 @@ type AgentConn struct {
 	Conn    *websocket.Conn
 	Send    chan []byte
 	Hub     *Hub
+	closeMu sync.Mutex
+	closed  bool
 }
 
-func (ac *AgentConn) writeEnvelope(msgType protocol.MessageType, payload any) error {
+func (ac *AgentConn) Close() {
+	ac.closeMu.Lock()
+	defer ac.closeMu.Unlock()
+	if !ac.closed {
+		ac.closed = true
+		close(ac.Send)
+		_ = ac.Conn.Close()
+	}
+}
+
+func (ac *AgentConn) SafeSend(msg []byte) error {
+	ac.closeMu.Lock()
+	defer ac.closeMu.Unlock()
+	if ac.closed {
+		return errors.New("connection closed")
+	}
+	select {
+	case ac.Send <- msg:
+		return nil
+	default:
+		return errors.New("send buffer full")
+	}
+}
+
+func (ac *AgentConn) QueueEnvelope(msgType protocol.MessageType, payload any) error {
 	env := protocol.Envelope{
 		Type:      msgType,
 		Timestamp: time.Now().Unix(),
@@ -27,14 +55,14 @@ func (ac *AgentConn) writeEnvelope(msgType protocol.MessageType, payload any) er
 	if err != nil {
 		return err
 	}
-	return ac.Conn.WriteMessage(websocket.TextMessage, b)
+	return ac.SafeSend(b)
 }
 
 func (ac *AgentConn) writePump() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer func() {
 		ticker.Stop()
-		_ = ac.Conn.Close()
+		ac.Close()
 	}()
 
 	for {
@@ -59,7 +87,7 @@ func (ac *AgentConn) writePump() {
 
 func (ac *AgentConn) readPump() {
 	defer func() {
-		ac.Hub.Unregister(ac.AgentID)
+		ac.Hub.Unregister(ac.AgentID, ac)
 	}()
 
 	ac.Conn.SetReadLimit(1024 * 512)
@@ -76,7 +104,6 @@ func (ac *AgentConn) readPump() {
 		}
 
 		_ = ac.Conn.SetReadDeadline(time.Now().Add(90 * time.Second))
-
 		var env protocol.Envelope
 		if err := json.Unmarshal(message, &env); err != nil {
 			continue
@@ -93,7 +120,7 @@ func (ac *AgentConn) handleIncomingMessage(env protocol.Envelope) {
 			"is_online":    true,
 			"last_seen_at": time.Now(),
 		})
-		_ = ac.writeEnvelope(protocol.TypeHeartbeatAck, map[string]any{"status": "ok"})
+		_ = ac.QueueEnvelope(protocol.TypeHeartbeatAck, map[string]any{"status": "ok"})
 
 	case protocol.TypePingReport:
 		raw, _ := json.Marshal(env.Payload)

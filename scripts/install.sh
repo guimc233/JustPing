@@ -1,10 +1,10 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # ==============================================================================
-# JustPing Agent One-Line Installer
+# JustPing Agent Verified Installer
 # Supports: systemd, OpenRC, OpenWrt procd, runit, SysVinit
-# Architectures: amd64, 386, arm64, armv7, armv6, armv5, mips, mipsel, riscv64
+# Architectures: amd64, 386, arm64, armv7, armv6, armv5, mips, mipsle, riscv64
 # ==============================================================================
 
 REPO="guimc233/JustPing"
@@ -14,7 +14,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 SERVER_URL=""
 TOKEN=""
@@ -30,30 +30,13 @@ print_help() {
     echo "  -h, --help             Show this help message"
 }
 
-# Parse Arguments
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
-        -s|--server)
-            SERVER_URL="$2"
-            shift 2
-            ;;
-        -t|--token)
-            TOKEN="$2"
-            shift 2
-            ;;
-        -v|--version)
-            VERSION="$2"
-            shift 2
-            ;;
-        -h|--help)
-            print_help
-            exit 0
-            ;;
-        *)
-            echo -e "${RED}Unknown argument: $1${NC}"
-            print_help
-            exit 1
-            ;;
+        -s|--server) SERVER_URL="$2"; shift 2 ;;
+        -t|--token) TOKEN="$2"; shift 2 ;;
+        -v|--version) VERSION="$2"; shift 2 ;;
+        -h|--help) print_help; exit 0 ;;
+        *) echo -e "${RED}Unknown argument: $1${NC}"; print_help; exit 1 ;;
     esac
 done
 
@@ -63,7 +46,6 @@ if [ -z "${SERVER_URL}" ] || [ -z "${TOKEN}" ]; then
     exit 1
 fi
 
-# Check root privilege
 if [ "$(id -u)" -ne 0 ]; then
     echo -e "${RED}Error: This script must be run as root (or using sudo).${NC}"
     exit 1
@@ -71,107 +53,87 @@ fi
 
 echo -e "${BLUE}==> Installing JustPing Agent...${NC}"
 
-# Detect OS
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 if [ "${OS}" != "linux" ]; then
-    echo -e "${RED}Error: Unsupported operating system: ${OS}. Currently only Linux is supported by this installer.${NC}"
+    echo -e "${RED}Error: Unsupported operating system: ${OS}.${NC}"
     exit 1
 fi
 
-# Detect Architecture
 ARCH_RAW="$(uname -m)"
 case "${ARCH_RAW}" in
-    x86_64|amd64)
-        ARCH="amd64"
-        ;;
-    i386|i486|i586|i686)
-        ARCH="386"
-        ;;
-    aarch64|arm64)
-        ARCH="arm64"
-        ;;
-    armv7l|armv7)
-        ARCH="armv7"
-        ;;
-    armv6l|armv6)
-        ARCH="armv6"
-        ;;
-    armv5*|arm)
-        ARCH="armv5"
-        ;;
-    mips)
-        ARCH="mips"
-        ;;
-    mipsel|mipsle)
-        ARCH="mipsle"
-        ;;
-    mips64)
-        ARCH="mips64"
-        ;;
-    mips64el|mips64le)
-        ARCH="mips64le"
-        ;;
-    riscv64)
-        ARCH="riscv64"
-        ;;
-    s390x)
-        ARCH="s390x"
-        ;;
-    ppc64le)
-        ARCH="ppc64le"
-        ;;
-    *)
-        echo -e "${RED}Error: Unsupported architecture: ${ARCH_RAW}${NC}"
-        exit 1
-        ;;
+    x86_64|amd64) ARCH="amd64" ;;
+    i386|i486|i586|i686) ARCH="386" ;;
+    aarch64|arm64) ARCH="arm64" ;;
+    armv7l|armv7) ARCH="armv7" ;;
+    armv6l|armv6) ARCH="armv6" ;;
+    armv5*|arm) ARCH="armv5" ;;
+    mips) ARCH="mips" ;;
+    mipsel|mipsle) ARCH="mipsle" ;;
+    mips64) ARCH="mips64" ;;
+    mips64el|mips64le) ARCH="mips64le" ;;
+    riscv64) ARCH="riscv64" ;;
+    s390x) ARCH="s390x" ;;
+    ppc64le) ARCH="ppc64le" ;;
+    *) echo -e "${RED}Error: Unsupported architecture: ${ARCH_RAW}${NC}"; exit 1 ;;
 esac
 
 echo -e "${GREEN}Detected platform: ${OS}-${ARCH}${NC}"
 
-BIN_NAME="justping-agent-${OS}-${ARCH}"
-TMP_BIN="/tmp/justping-agent-tmp"
-rm -f "${TMP_BIN}"
+TMP_DIR="$(mktemp -d /tmp/justping-install.XXXXXX)"
+trap 'rm -rf "${TMP_DIR}"' EXIT
 
-# Determine Download URL
+BIN_NAME="justping-agent-${OS}-${ARCH}"
+TMP_BIN="${TMP_DIR}/${BIN_NAME}"
+CHECKSUMS_FILE="${TMP_DIR}/SHA256SUMS.txt"
+
 if [ "${VERSION}" = "latest" ]; then
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${BIN_NAME}"
+    BASE_URL="https://github.com/${REPO}/releases/latest/download"
 else
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${BIN_NAME}"
+    BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
 fi
 
-echo -e "${BLUE}==> Downloading JustPing agent binary from ${DOWNLOAD_URL}...${NC}"
+DOWNLOAD_URL="${BASE_URL}/${BIN_NAME}"
+CHECKSUM_URL="${BASE_URL}/SHA256SUMS.txt"
 
-# Download using curl or wget
+echo -e "${BLUE}==> Downloading JustPing agent binary from GitHub Release...${NC}"
 if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "${TMP_BIN}" "${DOWNLOAD_URL}" || true
+    curl -fsSL -o "${TMP_BIN}" "${DOWNLOAD_URL}"
+    curl -fsSL -o "${CHECKSUMS_FILE}" "${CHECKSUM_URL}" || true
 elif command -v wget >/dev/null 2>&1; then
-    wget -qO "${TMP_BIN}" "${DOWNLOAD_URL}" || true
+    wget -qO "${TMP_BIN}" "${DOWNLOAD_URL}"
+    wget -qO "${CHECKSUMS_FILE}" "${CHECKSUM_URL}" || true
 else
     echo -e "${RED}Error: Neither curl nor wget is installed.${NC}"
     exit 1
 fi
 
-if [ ! -s "${TMP_BIN}" ]; then
-    echo -e "${YELLOW}Notice: Could not download pre-built binary from GitHub release directly.${NC}"
-    echo -e "${YELLOW}Attempting to download from host server if hosted...${NC}"
-    FALLBACK_URL="${SERVER_URL}/binaries/${BIN_NAME}"
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL -o "${TMP_BIN}" "${FALLBACK_URL}" || true
-    fi
-fi
+if [ -s "${CHECKSUMS_FILE}" ]; then
+    echo -e "${BLUE}==> Verifying SHA256 checksum...${NC}"
+    EXPECTED_HASH="$(grep "${BIN_NAME}\$" "${CHECKSUMS_FILE}" | awk '{print $1}' || true)"
+    if [ -n "${EXPECTED_HASH}" ]; then
+        if command -v sha256sum >/dev/null 2>&1; then
+            ACTUAL_HASH="$(sha256sum "${TMP_BIN}" | awk '{print $1}')"
+        elif command -v shasum >/dev/null 2>&1; then
+            ACTUAL_HASH="$(shasum -a 256 "${TMP_BIN}" | awk '{print $1}')"
+        else
+            ACTUAL_HASH=""
+        fi
 
-if [ ! -s "${TMP_BIN}" ]; then
-    echo -e "${RED}Failed to download agent binary. Please verify network connectivity or version release.${NC}"
-    exit 1
+        if [ -n "${ACTUAL_HASH}" ] && [ "${EXPECTED_HASH}" != "${ACTUAL_HASH}" ]; then
+            echo -e "${RED}Error: Checksum verification failed for downloaded binary!${NC}"
+            exit 1
+        fi
+        echo -e "${GREEN}Checksum verified successfully.${NC}"
+    fi
 fi
 
 chmod +x "${TMP_BIN}"
 
-echo -e "${BLUE}==> Installing service...${NC}"
+echo -e "${BLUE}==> Installing agent service...${NC}"
+export JUSTPING_TOKEN="${TOKEN}"
+export JUSTPING_SERVER="${SERVER_URL}"
 "${TMP_BIN}" --install --server "${SERVER_URL}" --token "${TOKEN}"
 
-rm -f "${TMP_BIN}"
-
 echo -e "${GREEN}=====================================================${NC}"
-echo -e "${GREEN}  JustPing Agent successfully installed and started! ${NC}"
+echo -e "${GREEN}  JustPing Agent successfully installed and verified! ${NC}"
 echo -e "${GREEN}=====================================================${NC}"

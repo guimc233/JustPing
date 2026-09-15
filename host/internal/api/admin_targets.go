@@ -21,6 +21,15 @@ type CreateTargetReq struct {
 	Enabled     *bool  `json:"enabled"`
 }
 
+type UpdateTargetReq struct {
+	Name        *string `json:"name"`
+	Host        *string `json:"host"`
+	PacketCount *int    `json:"packet_count"`
+	IntervalSec *int    `json:"interval_sec"`
+	Tags        *string `json:"tags"`
+	Enabled     *bool   `json:"enabled"`
+}
+
 func adminListTargets(c *gin.Context) {
 	var targets []model.Target
 	db.DB.Order("created_at desc").Find(&targets)
@@ -30,18 +39,28 @@ func adminListTargets(c *gin.Context) {
 func adminCreateTarget(c *gin.Context) {
 	var req CreateTargetReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Name and Host are required"})
 		return
 	}
 
 	pktCount := 15
-	if req.PacketCount > 0 && req.PacketCount <= 100 {
+	if req.PacketCount > 0 {
+		if req.PacketCount > 100 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Packet count cannot exceed 100"})
+			return
+		}
 		pktCount = req.PacketCount
 	}
+
 	interval := 60
-	if req.IntervalSec >= 10 && req.IntervalSec <= 3600 {
+	if req.IntervalSec > 0 {
+		if req.IntervalSec < 10 || req.IntervalSec > 3600 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Interval must be between 10 and 3600 seconds"})
+			return
+		}
 		interval = req.IntervalSec
 	}
+
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
@@ -76,25 +95,35 @@ func adminUpdateTarget(c *gin.Context) {
 		return
 	}
 
-	var req CreateTargetReq
+	var req UpdateTargetReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid payload format"})
 		return
 	}
 
-	if req.Name != "" {
-		target.Name = strings.TrimSpace(req.Name)
+	if req.Name != nil && strings.TrimSpace(*req.Name) != "" {
+		target.Name = strings.TrimSpace(*req.Name)
 	}
-	if req.Host != "" {
-		target.Host = strings.TrimSpace(req.Host)
+	if req.Host != nil && strings.TrimSpace(*req.Host) != "" {
+		target.Host = strings.TrimSpace(*req.Host)
 	}
-	if req.PacketCount > 0 {
-		target.PacketCount = req.PacketCount
+	if req.PacketCount != nil {
+		if *req.PacketCount < 1 || *req.PacketCount > 100 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Packet count must be between 1 and 100"})
+			return
+		}
+		target.PacketCount = *req.PacketCount
 	}
-	if req.IntervalSec > 0 {
-		target.IntervalSec = req.IntervalSec
+	if req.IntervalSec != nil {
+		if *req.IntervalSec < 10 || *req.IntervalSec > 3600 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Interval must be between 10 and 3600 seconds"})
+			return
+		}
+		target.IntervalSec = *req.IntervalSec
 	}
-	target.Tags = strings.TrimSpace(req.Tags)
+	if req.Tags != nil {
+		target.Tags = strings.TrimSpace(*req.Tags)
+	}
 	if req.Enabled != nil {
 		target.Enabled = *req.Enabled
 	}

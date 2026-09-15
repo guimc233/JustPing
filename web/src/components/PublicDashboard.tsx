@@ -42,9 +42,12 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({ isAdmin }) => 
       setTargets(tgData)
       setMatrix(mxData)
 
-      if (agData.length > 0 && !selectedAgentId) {
-        setSelectedAgentId(agData[0].id)
-      }
+      setSelectedAgentId((prev) => {
+        if (prev && agData.some((a: any) => a.id === prev)) {
+          return prev
+        }
+        return agData.length > 0 ? agData[0].id : ''
+      })
     } catch (err) {
       console.error('Failed to load probe metrics:', err)
     } finally {
@@ -90,12 +93,12 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({ isAdmin }) => 
   // Calculate fleet health
   const onlineAgents = agents.filter((a) => a.is_online)
   const highQualityAgents = onlineAgents.filter(
-    (a) => a.quality?.grade === 'A+' || a.quality?.grade === 'A'
+    (a) => a.quality?.quality_grade === 'A+' || a.quality?.quality_grade === 'A'
   )
   const fleetHealthPct =
     onlineAgents.length > 0
       ? Math.round((highQualityAgents.length / onlineAgents.length) * 100)
-      : 100
+      : 0
 
   const getMatrixCell = (agentId: string, targetId: string) => {
     return matrix.find((m) => m.agent_id === agentId && m.target_id === targetId)

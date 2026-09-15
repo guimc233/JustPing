@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +9,11 @@ import (
 	"path/filepath"
 	"runtime"
 )
+
+type AgentConfig struct {
+	Server string `json:"server"`
+	Token  string `json:"token"`
+}
 
 // InstallService writes configuration and installs the agent as an OS service
 func InstallService(binPath, serverURL, token string) error {
@@ -22,8 +28,12 @@ func InstallService(binPath, serverURL, token string) error {
 		return fmt.Errorf("failed to create /etc/justping: %w", err)
 	}
 
-	cfgJSON := fmt.Sprintf("{\n  \"server\": \"%s\",\n  \"token\": \"%s\"\n}\n", serverURL, token)
-	if err := os.WriteFile("/etc/justping/agent.json", []byte(cfgJSON), 0600); err != nil {
+	cfgData, err := json.MarshalIndent(AgentConfig{Server: serverURL, Token: token}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to format config: %w", err)
+	}
+
+	if err := os.WriteFile("/etc/justping/agent.json", cfgData, 0600); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 

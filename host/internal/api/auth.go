@@ -16,13 +16,17 @@ func githubLogin(c *gin.Context) {
 		c.Redirect(http.StatusTemporaryRedirect, "/setup?error=oauth_not_configured")
 		return
 	}
-	state := c.DefaultQuery("state", "login")
+	state := auth.GenerateOAuthState(c)
 	c.Redirect(http.StatusTemporaryRedirect, cfg.AuthCodeURL(state, oauth2.AccessTypeOnline))
 }
 
 func githubCallback(c *gin.Context) {
 	code := c.Query("code")
 	state := c.Query("state")
+	if !auth.ValidateOAuthState(c, state) {
+		c.Redirect(http.StatusTemporaryRedirect, "/login?error=invalid_oauth_state")
+		return
+	}
 	if code == "" {
 		c.Redirect(http.StatusTemporaryRedirect, "/login?error=missing_code")
 		return
@@ -51,7 +55,8 @@ func githubCallback(c *gin.Context) {
 		primaryEmail = verifiedEmails[0]
 	}
 	if primaryEmail == "" {
-		primaryEmail = fmt.Sprintf("%s@users.noreply.github.com", ghUser.Login)
+		c.Redirect(http.StatusTemporaryRedirect, "/login?error=no_verified_github_email")
+		return
 	}
 
 	authUser := &auth.AuthUser{
@@ -63,7 +68,7 @@ func githubCallback(c *gin.Context) {
 		VerifiedEmails: verifiedEmails,
 	}
 
-	handleOAuthLoginSuccess(c, authUser, state)
+	handleOAuthLoginSuccess(c, authUser)
 }
 
 func googleLogin(c *gin.Context) {
@@ -72,13 +77,17 @@ func googleLogin(c *gin.Context) {
 		c.Redirect(http.StatusTemporaryRedirect, "/setup?error=google_oauth_not_configured")
 		return
 	}
-	state := c.DefaultQuery("state", "login")
+	state := auth.GenerateOAuthState(c)
 	c.Redirect(http.StatusTemporaryRedirect, cfg.AuthCodeURL(state, oauth2.AccessTypeOnline))
 }
 
 func googleCallback(c *gin.Context) {
 	code := c.Query("code")
 	state := c.Query("state")
+	if !auth.ValidateOAuthState(c, state) {
+		c.Redirect(http.StatusTemporaryRedirect, "/login?error=invalid_oauth_state")
+		return
+	}
 	cfg, err := auth.GetGoogleOAuthConfig()
 	if err != nil {
 		c.Redirect(http.StatusTemporaryRedirect, "/setup?error=google_oauth_not_configured")
@@ -94,7 +103,7 @@ func googleCallback(c *gin.Context) {
 		c.Redirect(http.StatusTemporaryRedirect, "/login?error=google_userinfo_failed")
 		return
 	}
-	handleOAuthLoginSuccess(c, authUser, state)
+	handleOAuthLoginSuccess(c, authUser)
 }
 
 func oidcLogin(c *gin.Context) {
@@ -103,13 +112,17 @@ func oidcLogin(c *gin.Context) {
 		c.Redirect(http.StatusTemporaryRedirect, "/setup?error=oidc_not_configured")
 		return
 	}
-	state := c.DefaultQuery("state", "login")
+	state := auth.GenerateOAuthState(c)
 	c.Redirect(http.StatusTemporaryRedirect, cfg.AuthCodeURL(state, oauth2.AccessTypeOnline))
 }
 
 func oidcCallback(c *gin.Context) {
 	code := c.Query("code")
 	state := c.Query("state")
+	if !auth.ValidateOAuthState(c, state) {
+		c.Redirect(http.StatusTemporaryRedirect, "/login?error=invalid_oauth_state")
+		return
+	}
 	cfg, err := auth.GetGenericOAuthConfig()
 	if err != nil {
 		c.Redirect(http.StatusTemporaryRedirect, "/setup?error=oidc_not_configured")
@@ -125,7 +138,7 @@ func oidcCallback(c *gin.Context) {
 		c.Redirect(http.StatusTemporaryRedirect, "/login?error=oidc_userinfo_failed")
 		return
 	}
-	handleOAuthLoginSuccess(c, authUser, state)
+	handleOAuthLoginSuccess(c, authUser)
 }
 
 func getCurrentUser(c *gin.Context) {
@@ -149,6 +162,6 @@ func getCurrentUser(c *gin.Context) {
 }
 
 func logout(c *gin.Context) {
-	c.SetCookie(auth.CookieSessionName, "", -1, "/", "", false, true)
+	auth.ClearSessionCookie(c)
 	c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})
 }

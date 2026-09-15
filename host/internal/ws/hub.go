@@ -26,35 +26,37 @@ func NewHub() *Hub {
 	}
 }
 
-// Register adds an agent connection
+// Register adds an agent connection, closing any stale predecessor
 func (h *Hub) Register(agentID string, ac *AgentConn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if old, exists := h.agents[agentID]; exists {
-		close(old.Send)
-		_ = old.Conn.Close()
+		old.Close()
 	}
 	h.agents[agentID] = ac
-	log.Printf("[WS Hub] Agent %s connected. Total online: %d\n", agentID, len(h.agents))
+	log.Printf("[WS Hub] Agent %s connected. Online probes: %d\n", agentID, len(h.agents))
 }
 
-// Unregister removes an agent connection
-func (h *Hub) Unregister(agentID string) {
+// Unregister removes an agent connection only if it is the current registered instance
+func (h *Hub) Unregister(agentID string, ac *AgentConn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if ac, exists := h.agents[agentID]; exists {
-		delete(h.agents, agentID)
-		close(ac.Send)
-		_ = ac.Conn.Close()
-		log.Printf("[WS Hub] Agent %s disconnected. Total online: %d\n", agentID, len(h.agents))
+	current, exists := h.agents[agentID]
+	if !exists || current != ac {
+		return // Stale socket exiting after a successor was already registered
 	}
+
+	delete(h.agents, agentID)
+	ac.Close()
+	log.Printf("[WS Hub] Agent %s disconnected. Online probes: %d\n", agentID, len(h.agents))
+
 	_ = db.DB.Model(&model.Agent{}).Where("id = ?", agentID).Updates(map[string]any{
 		"is_online":    false,
 		"last_seen_at": time.Now(),
 	})
 }
 
-// SendToAgent sends a typed envelope message to a specific agent
+// SendToAgent sends a typed envelope safely without panicking on closed channel
 func (h *Hub) SendToAgent(agentID string, msgType protocol.MessageType, payload any) error {
 	env := protocol.Envelope{
 		Type:      msgType,
@@ -74,19 +76,13 @@ func (h *Hub) SendToAgent(agentID string, msgType protocol.MessageType, payload 
 		return nil
 	}
 
-	select {
-	case ac.Send <- b:
-	default:
-		log.Printf("[WS Hub] Send buffer full for agent %s, dropping message\n", agentID)
-	}
-	return nil
+	return ac.SafeSend(b)
 }
 
-// BroadcastTargetSync re-evaluates and pushes target configs to all active agents
+// BroadcastTargetSync pushes target configs to all active agents
 func (h *Hub) BroadcastTargetSync() {
 	var targets []model.Target
 	if err := db.DB.Where("enabled = ?", true).Find(&targets).Error; err != nil {
-		log.Printf("[WS Hub] Failed to query active targets: %v\n", err)
 		return
 	}
 

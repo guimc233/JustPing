@@ -94,22 +94,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
       setNewTarget({ name: '', host: '', packet_count: 15, interval_sec: 60, tags: '' })
       setShowAddTarget(false)
       loadTargets()
+    } else {
+      const err = await res.json().catch(() => ({}))
+      alert(err.error || 'Failed to save target')
     }
   }
 
   const handleDeleteTarget = async (id: string) => {
     if (!confirm('Are you sure you want to delete this target?')) return
-    await fetch(`/api/admin/targets/${id}`, { method: 'DELETE' })
-    loadTargets()
+    const res = await fetch(`/api/admin/targets/${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      loadTargets()
+    } else {
+      const err = await res.json().catch(() => ({}))
+      alert(err.error || 'Failed to delete target')
+    }
   }
 
   const handleToggleTarget = async (t: any) => {
-    await fetch(`/api/admin/targets/${t.id}`, {
+    const res = await fetch(`/api/admin/targets/${t.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled: !t.enabled }),
     })
-    loadTargets()
+    if (res.ok) {
+      loadTargets()
+    } else {
+      const err = await res.json().catch(() => ({}))
+      alert(err.error || 'Failed to update target status')
+    }
   }
 
   // Agent handlers
@@ -555,7 +568,85 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                 />
               </div>
 
-              <div className="space-y-1">
+              {/* Google OAuth */}
+              <div className="pt-2 border-t border-border/60">
+                <div className="text-xs font-semibold text-foreground mb-2">Google OAuth Credentials</div>
+                <div className="space-y-2">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Google Client ID</label>
+                    <Input
+                      value={settings.google_client_id || ''}
+                      onChange={(e) => setSettings({ ...settings, google_client_id: e.target.value })}
+                      placeholder="xxxx.apps.googleusercontent.com"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Google Client Secret</label>
+                    <Input
+                      type="password"
+                      placeholder="Keep unchanged or enter new secret"
+                      value={settings.google_client_secret || ''}
+                      onChange={(e) => setSettings({ ...settings, google_client_secret: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Generic OIDC */}
+              <div className="pt-2 border-t border-border/60">
+                <div className="text-xs font-semibold text-foreground mb-2">Generic OIDC / Custom OAuth</div>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Provider Display Name</label>
+                      <Input
+                        value={settings.oidc_name || ''}
+                        onChange={(e) => setSettings({ ...settings, oidc_name: e.target.value })}
+                        placeholder="SSO / Keycloak"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">OIDC Client ID</label>
+                      <Input
+                        value={settings.oidc_client_id || ''}
+                        onChange={(e) => setSettings({ ...settings, oidc_client_id: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">OIDC Client Secret</label>
+                    <Input
+                      type="password"
+                      placeholder="Keep unchanged or enter new secret"
+                      value={settings.oidc_client_secret || ''}
+                      onChange={(e) => setSettings({ ...settings, oidc_client_secret: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Auth Endpoint URL</label>
+                    <Input
+                      value={settings.oidc_auth_url || ''}
+                      onChange={(e) => setSettings({ ...settings, oidc_auth_url: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Token Endpoint URL</label>
+                    <Input
+                      value={settings.oidc_token_url || ''}
+                      onChange={(e) => setSettings({ ...settings, oidc_token_url: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">UserInfo Endpoint URL</label>
+                    <Input
+                      value={settings.oidc_userinfo_url || ''}
+                      onChange={(e) => setSettings({ ...settings, oidc_userinfo_url: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1 pt-2 border-t border-border/60">
                 <label className="text-xs font-medium text-muted-foreground">
                   Ping Metric Data Retention (Days)
                 </label>

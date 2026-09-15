@@ -52,7 +52,7 @@ type Target struct {
 type Agent struct {
 	ID         string    `gorm:"primaryKey;size:36" json:"id"`
 	Name       string    `gorm:"size:128;not null" json:"name"`
-	Token      string    `gorm:"uniqueIndex;size:64;not null" json:"token"`
+	Token      string    `gorm:"uniqueIndex;size:64;not null" json:"-"`
 	PublicIP   string    `gorm:"size:128" json:"public_ip"`
 	OS         string    `gorm:"size:64" json:"os"`
 	Arch       string    `gorm:"size:64" json:"arch"`

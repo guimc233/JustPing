@@ -1,5 +1,5 @@
-import React from 'react'
-import { Activity, ShieldCheck, LogIn, LogOut, Server, Radio, Settings } from 'lucide-react'
+import React, { useState } from 'react'
+import { Activity, ShieldCheck, LogIn, LogOut, Server, Radio, Settings, ChevronDown } from 'lucide-react'
 import { Button } from './ui/button'
 
 interface NavbarProps {
@@ -13,12 +13,39 @@ interface NavbarProps {
       role: string
     }
   }
+  setupStatus: {
+    github_configured?: boolean
+    google_configured?: boolean
+    oidc_configured?: boolean
+  } | null
   activeTab: string
   setActiveTab: (tab: string) => void
   onLogout: () => void
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ currentUser, activeTab, setActiveTab, onLogout }) => {
+export const Navbar: React.FC<NavbarProps> = ({
+  currentUser,
+  setupStatus,
+  activeTab,
+  setActiveTab,
+  onLogout,
+}) => {
+  const [showLoginMenu, setShowLoginMenu] = useState(false)
+
+  const providers: { name: string; url: string }[] = []
+  if (setupStatus?.github_configured !== false) {
+    providers.push({ name: 'GitHub', url: '/api/auth/github/login' })
+  }
+  if (setupStatus?.google_configured) {
+    providers.push({ name: 'Google', url: '/api/auth/google/login' })
+  }
+  if (setupStatus?.oidc_configured) {
+    providers.push({ name: 'OIDC / SSO', url: '/api/auth/oidc/login' })
+  }
+  if (providers.length === 0) {
+    providers.push({ name: 'Login', url: '/api/auth/github/login' })
+  }
+
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-background/95 backdrop-blur-sm">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
@@ -46,7 +73,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentUser, activeTab, setActiv
               onClick={() => setActiveTab('dashboard')}
             >
               <Activity className="size-4 mr-1.5 text-primary" />
-              Dashboard
+              Probes
             </Button>
             <Button
               variant={activeTab === 'matrix' ? 'secondary' : 'ghost'}
@@ -62,7 +89,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentUser, activeTab, setActiv
               onClick={() => setActiveTab('agents')}
             >
               <Server className="size-4 mr-1.5 text-purple-400" />
-              Probes
+              Nodes
             </Button>
             {currentUser.authenticated && (
               <Button
@@ -115,16 +142,43 @@ export const Navbar: React.FC<NavbarProps> = ({ currentUser, activeTab, setActiv
                 <span className="hidden sm:inline ml-1.5">Logout</span>
               </Button>
             </div>
-          ) : (
+          ) : providers.length === 1 ? (
             <Button
               variant="default"
               size="sm"
-              onClick={() => (window.location.href = '/api/auth/github/login')}
+              onClick={() => (window.location.href = providers[0].url)}
               className="font-medium"
             >
               <LogIn className="size-4 mr-1.5" />
-              GitHub Login
+              {providers[0].name} Login
             </Button>
+          ) : (
+            <div className="relative">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => setShowLoginMenu(!showLoginMenu)}
+                className="font-medium"
+              >
+                <LogIn className="size-4 mr-1.5" />
+                Sign In
+                <ChevronDown className="size-3.5 ml-1" />
+              </Button>
+
+              {showLoginMenu && (
+                <div className="absolute right-0 mt-2 w-40 rounded-lg border border-border bg-popover p-1 shadow-lg z-50">
+                  {providers.map((p) => (
+                    <button
+                      key={p.name}
+                      onClick={() => (window.location.href = p.url)}
+                      className="w-full text-left rounded-md px-3 py-1.5 text-xs font-medium hover:bg-accent hover:text-accent-foreground transition cursor-pointer"
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

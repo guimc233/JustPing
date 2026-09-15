@@ -128,16 +128,26 @@ jobs:
             arch: s390x
             name: linux-s390x
             ext: ""
-          # MIPS Series
+          # MIPS Series (Support both softfloat and hardfloat for OpenWrt/embedded)
+          - os: linux
+            arch: mips
+            gomips: "softfloat"
+            name: linux-mips
+            ext: ""
           - os: linux
             arch: mips
             gomips: "hardfloat"
-            name: linux-mips
+            name: linux-mips-hardfloat
+            ext: ""
+          - os: linux
+            arch: mipsle
+            gomips: "softfloat"
+            name: linux-mipsle
             ext: ""
           - os: linux
             arch: mipsle
             gomips: "hardfloat"
-            name: linux-mipsle
+            name: linux-mipsle-hardfloat
             ext: ""
           - os: linux
             arch: mips64
@@ -248,11 +258,13 @@ jobs:
         with:
           path: release-binaries
 
-      - name: Prepare Release Assets
+      - name: Prepare Release Assets and Checksums
         run: |
           mkdir -p release-dist
           find release-binaries/ -type f -exec mv {} release-dist/ \;
-          ls -la release-dist/
+          cd release-dist
+          sha256sum * > SHA256SUMS.txt
+          ls -la
 
       - name: Release to GitHub
         uses: softprops/action-gh-release@v2

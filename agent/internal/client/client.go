@@ -29,12 +29,14 @@ type Client struct {
 	reportQueue []protocol.PingReportPayload
 	queueMu     sync.Mutex
 	stopCh      chan struct{}
+	syncHook    func([]protocol.TargetConfig)
 }
 
-func NewClient(cfg Config, p *pinger.Pinger) *Client {
+func NewClient(cfg Config, p *pinger.Pinger, syncHook func([]protocol.TargetConfig)) *Client {
 	return &Client{
 		cfg:         cfg,
 		pinger:      p,
+		syncHook:    syncHook,
 		reportQueue: make([]protocol.PingReportPayload, 0, 500),
 		stopCh:      make(chan struct{}),
 	}
@@ -55,9 +57,8 @@ func (c *Client) Stop() {
 
 func (c *Client) buildWSURL() (string, error) {
 	raw := strings.TrimRight(c.cfg.ServerURL, "/")
-	if !strings.HasPrefix(raw, "http://") && !strings.HasPrefix(raw, "https://") &&
-		!strings.HasPrefix(raw, "ws://") && !strings.HasPrefix(raw, "wss://") {
-		raw = "http://" + raw
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw // Secure HTTPS/WSS by default
 	}
 
 	u, err := url.Parse(raw)
@@ -65,9 +66,9 @@ func (c *Client) buildWSURL() (string, error) {
 		return "", err
 	}
 
-	scheme := "ws"
-	if u.Scheme == "https" || u.Scheme == "wss" {
-		scheme = "wss"
+	scheme := "wss"
+	if u.Scheme == "http" || u.Scheme == "ws" {
+		scheme = "ws"
 	}
 
 	wsPath := "/api/agent/ws"

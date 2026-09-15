@@ -26,8 +26,12 @@ depend() {
 		return err
 	}
 
-	_ = exec.Command("rc-update", "add", "justping-agent", "default").Run()
-	_ = exec.Command("rc-service", "justping-agent", "restart").Run()
+	if err := exec.Command("rc-update", "add", "justping-agent", "default").Run(); err != nil {
+		return fmt.Errorf("rc-update failed: %w", err)
+	}
+	if err := exec.Command("rc-service", "justping-agent", "restart").Run(); err != nil {
+		return fmt.Errorf("rc-service restart failed: %w", err)
+	}
 	fmt.Println("[Installer] Service installed and started via OpenRC!")
 	return nil
 }
