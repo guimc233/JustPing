@@ -53,6 +53,8 @@ jobs:
         run: |
           npm ci || npm install
           npm run build
+          mkdir -p ../host/internal/ui/dist
+          cp -r dist/* ../host/internal/ui/dist/
 
       - name: Setup Go
         uses: actions/setup-go@v5

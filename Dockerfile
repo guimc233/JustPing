@@ -22,6 +22,7 @@ RUN apk add --no-cache git ca-certificates
 
 COPY shared/ ./shared/
 COPY host/ ./host/
+COPY --from=web-builder /app/web/dist/ ./host/internal/ui/dist/
 
 WORKDIR /app/host
 ENV GOWORK=off
