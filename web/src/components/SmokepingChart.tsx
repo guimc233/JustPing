@@ -215,9 +215,15 @@ export const SmokepingChart: React.FC<SmokepingChartProps> = ({
       // Has at least one received packet
       const avgRTT = Math.round((valid.reduce((s, p) => s + p.avg_rtt_ms, 0) / valid.length) * 100) / 100
       const maxJitter = Math.max(...valid.map((p) => p.jitter_ms || 0))
-      const hasAnyLoss = pings.some(
-        (p) => p.loss_pct > 0 || (p.packets_recv !== undefined && p.packets_sent !== undefined && p.packets_recv < p.packets_sent)
-      )
+      // Check if an actual packet loss/drop occurred in this specific minute
+      const hasRealLossInSlot = pings.some((p) => {
+        if (p.error_msg && p.error_msg.trim() !== '') return true
+        if (p.packets_sent !== undefined && p.packets_recv !== undefined && p.packets_sent > p.packets_recv) {
+          return true
+        }
+        if (!p.avg_rtt_ms || p.avg_rtt_ms <= 0) return true
+        return false
+      })
 
       slots.push({
         timeKey: String(m),
@@ -226,8 +232,8 @@ export const SmokepingChart: React.FC<SmokepingChartProps> = ({
         fullDateLabel,
         avg: avgRTT,
         jitter: maxJitter,
-        hasLoss: hasAnyLoss,
-        status: hasAnyLoss ? 'partial_loss' : 'ok',
+        hasLoss: hasRealLossInSlot,
+        status: hasRealLossInSlot ? 'partial_loss' : 'ok',
       })
     }
 

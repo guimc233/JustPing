@@ -76,19 +76,34 @@ func (p *Pinger) PingTargetOnce(ctx context.Context, t protocol.TargetConfig) pr
 
 	summary := win.Summary()
 
+	sentThisRound := 1
+	recvThisRound := 0
+	rttThisRound := 0.0
+	errMsg := ""
+
+	if stat.Success {
+		recvThisRound = 1
+		rttThisRound = stat.RTT
+	} else {
+		errMsg = stat.ErrorMsg
+		if errMsg == "" {
+			errMsg = "Packet timed out"
+		}
+	}
+
 	res := protocol.SinglePingResult{
 		TargetID:    t.ID,
 		TargetHost:  t.Host,
 		Timestamp:   stat.Timestamp,
-		PacketsSent: summary.TotalSent,
-		PacketsRecv: summary.TotalRecv,
+		PacketsSent: sentThisRound,
+		PacketsRecv: recvThisRound,
 		LossPct:     summary.LossPct,
 		MinRTT:      summary.MinRTT,
 		MaxRTT:      summary.MaxRTT,
-		AvgRTT:      summary.AvgRTT,
+		AvgRTT:      rttThisRound,
 		Jitter:      summary.Jitter,
 		StdDev:      summary.StdDev,
-		ErrorMsg:    summary.LatestError,
+		ErrorMsg:    errMsg,
 	}
 
 	return res
