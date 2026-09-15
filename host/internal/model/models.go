@@ -40,8 +40,8 @@ type Target struct {
 	ID          string    `gorm:"primaryKey;size:36" json:"id"`
 	Name        string    `gorm:"size:128;not null" json:"name"`
 	Host        string    `gorm:"size:255;not null" json:"host"`
-	PacketCount int       `gorm:"default:15" json:"packet_count"`
-	IntervalSec int       `gorm:"default:60" json:"interval_sec"`
+	PacketCount int       `gorm:"default:20" json:"packet_count"` // sliding window sample size (e.g. 20 samples = 10 min)
+	IntervalSec int       `gorm:"default:30" json:"interval_sec"` // probe interval in seconds (default: 30s)
 	Tags        string    `gorm:"size:255" json:"tags"`
 	Enabled     bool      `gorm:"default:true" json:"enabled"`
 	CreatedAt   time.Time `json:"created_at"`

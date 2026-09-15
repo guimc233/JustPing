@@ -16,12 +16,21 @@ type Pinger struct {
 	targets      []protocol.TargetConfig
 	isPrivileged bool
 	privMu       sync.RWMutex
+	windows      sync.Map // map[string]*TargetWindow
 }
 
 func NewPinger() *Pinger {
 	return &Pinger{
 		isPrivileged: runtime.GOOS == "windows",
 	}
+}
+
+func (p *Pinger) GetOrCreateWindow(targetID string, windowSize int) *TargetWindow {
+	if windowSize <= 0 {
+		windowSize = 20
+	}
+	actual, _ := p.windows.LoadOrStore(targetID, NewTargetWindow(windowSize))
+	return actual.(*TargetWindow)
 }
 
 func (p *Pinger) SetPrivileged(priv bool) {
@@ -50,56 +59,44 @@ func (p *Pinger) GetTargets() []protocol.TargetConfig {
 	return copied
 }
 
-func (p *Pinger) PingTarget(ctx context.Context, t protocol.TargetConfig) protocol.SinglePingResult {
-	pktCount := t.PacketCount
-	if pktCount <= 0 {
-		pktCount = 15
+// PingTargetOnce sends 1 single ICMP packet, registers it in the target's sliding window,
+// and returns the aggregated window summary metric.
+func (p *Pinger) PingTargetOnce(ctx context.Context, t protocol.TargetConfig) protocol.SinglePingResult {
+	// Window size: default to t.PacketCount (e.g. 15-20 samples = 7.5-10 minutes of history at 30s intervals)
+	windowSize := t.PacketCount
+	if windowSize <= 0 {
+		windowSize = 20
 	}
-	if pktCount > 50 {
-		pktCount = 50
-	}
+
+	win := p.GetOrCreateWindow(t.ID, windowSize)
+
+	// Send single ICMP packet with a 3s timeout
+	stat := p.ExecuteSinglePing(ctx, t.Host, 3*time.Second)
+	win.Add(stat)
+
+	summary := win.Summary()
 
 	res := protocol.SinglePingResult{
 		TargetID:    t.ID,
 		TargetHost:  t.Host,
-		Timestamp:   time.Now().UTC(),
-		PacketsSent: pktCount,
-	}
-
-	priv := p.IsPrivileged()
-	stats, rtts, err := p.executePing(ctx, t.Host, pktCount, priv)
-	if err != nil && runtime.GOOS == "linux" && !priv {
-		// Fresh retry with privileged mode
-		var err2 error
-		stats, rtts, err2 = p.executePing(ctx, t.Host, pktCount, true)
-		if err2 == nil || (stats != nil && stats.PacketsRecv > 0) {
-			p.SetPrivileged(true) // Sticky privilege flag
-			err = err2
-		}
-	}
-
-	if stats != nil {
-		res.PacketsSent = stats.PacketsSent
-		res.PacketsRecv = stats.PacketsRecv
-		res.LossPct = stats.PacketLoss
-	}
-
-	if len(rtts) > 0 && stats != nil {
-		res.MinRTT = round(float64(stats.MinRtt.Microseconds()) / 1000.0)
-		res.MaxRTT = round(float64(stats.MaxRtt.Microseconds()) / 1000.0)
-		res.AvgRTT = round(float64(stats.AvgRtt.Microseconds()) / 1000.0)
-		res.StdDev = round(float64(stats.StdDevRtt.Microseconds()) / 1000.0)
-		res.Jitter = calculateRFC3550Jitter(rtts)
-	} else {
-		res.LossPct = 100.0
-		if err != nil {
-			res.ErrorMsg = err.Error()
-		} else {
-			res.ErrorMsg = "All packets timed out"
-		}
+		Timestamp:   stat.Timestamp,
+		PacketsSent: summary.TotalSent,
+		PacketsRecv: summary.TotalRecv,
+		LossPct:     summary.LossPct,
+		MinRTT:      summary.MinRTT,
+		MaxRTT:      summary.MaxRTT,
+		AvgRTT:      summary.AvgRTT,
+		Jitter:      summary.Jitter,
+		StdDev:      summary.StdDev,
+		ErrorMsg:    summary.LatestError,
 	}
 
 	return res
+}
+
+// PingTarget sends packetCount packets (legacy/multi-ping compatibility mode)
+func (p *Pinger) PingTarget(ctx context.Context, t protocol.TargetConfig) protocol.SinglePingResult {
+	return p.PingTargetOnce(ctx, t)
 }
 
 func (p *Pinger) executePing(ctx context.Context, host string, count int, privileged bool) (*probing.Statistics, []float64, error) {
@@ -109,8 +106,8 @@ func (p *Pinger) executePing(ctx context.Context, host string, count int, privil
 	}
 
 	pinger.Count = count
-	pinger.Interval = 100 * time.Millisecond
-	pinger.Timeout = time.Duration(count)*120*time.Millisecond + 2*time.Second
+	pinger.Interval = 1 * time.Second
+	pinger.Timeout = time.Duration(count)*1100*time.Millisecond + 3*time.Second
 	pinger.SetPrivileged(privileged)
 
 	var rtts []float64

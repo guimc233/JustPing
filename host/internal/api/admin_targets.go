@@ -43,7 +43,7 @@ func adminCreateTarget(c *gin.Context) {
 		return
 	}
 
-	pktCount := 15
+	pktCount := 20
 	if req.PacketCount > 0 {
 		if req.PacketCount > 100 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Packet count cannot exceed 100"})
@@ -52,10 +52,10 @@ func adminCreateTarget(c *gin.Context) {
 		pktCount = req.PacketCount
 	}
 
-	interval := 60
+	interval := 30
 	if req.IntervalSec > 0 {
-		if req.IntervalSec < 10 || req.IntervalSec > 3600 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Interval must be between 10 and 3600 seconds"})
+		if req.IntervalSec < 5 || req.IntervalSec > 3600 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Interval must be between 5 and 3600 seconds"})
 			return
 		}
 		interval = req.IntervalSec

@@ -42,18 +42,21 @@ func (s *TargetScheduler) SyncTargets(targets []protocol.TargetConfig) {
 	for _, t := range targets {
 		targetCtx, targetCancel := context.WithCancel(s.ctx)
 		s.running[t.ID] = targetCancel
+		// Launch concurrent worker for each target independently
 		go s.runTargetLoop(targetCtx, t)
 	}
 }
 
 func (s *TargetScheduler) runTargetLoop(ctx context.Context, t protocol.TargetConfig) {
-	interval := time.Duration(t.IntervalSec) * time.Second
-	if interval < 10*time.Second {
-		interval = 60 * time.Second
+	// Schedule: exactly 1 ICMP packet every IntervalSec (defaults to 30 seconds)
+	intervalSec := t.IntervalSec
+	if intervalSec <= 0 {
+		intervalSec = 30
 	}
+	interval := time.Duration(intervalSec) * time.Second
 
-	// Immediate run upon sync
-	res := s.pinger.PingTarget(ctx, t)
+	// Send initial single probe immediately upon target assignment
+	res := s.pinger.PingTargetOnce(ctx, t)
 	s.client.QueueReport(protocol.PingReportPayload{Results: []protocol.SinglePingResult{res}})
 
 	ticker := time.NewTicker(interval)
@@ -64,7 +67,8 @@ func (s *TargetScheduler) runTargetLoop(ctx context.Context, t protocol.TargetCo
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			res := s.pinger.PingTarget(ctx, t)
+			// Send 1 single ICMP packet every 30s, aggregate loss/latency sliding window
+			res := s.pinger.PingTargetOnce(ctx, t)
 			s.client.QueueReport(protocol.PingReportPayload{Results: []protocol.SinglePingResult{res}})
 		}
 	}

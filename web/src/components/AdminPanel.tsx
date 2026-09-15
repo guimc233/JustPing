@@ -32,8 +32,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   const [newTarget, setNewTarget] = useState({
     name: '',
     host: '',
-    packet_count: 15,
-    interval_sec: 60,
+    packet_count: 20,
+    interval_sec: 30,
     tags: '',
   })
 
@@ -92,7 +92,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
       body: JSON.stringify(newTarget),
     })
     if (res.ok) {
-      setNewTarget({ name: '', host: '', packet_count: 15, interval_sec: 60, tags: '' })
+      setNewTarget({ name: '', host: '', packet_count: 20, interval_sec: 30, tags: '' })
       setShowAddTarget(false)
       loadTargets()
     } else {
@@ -287,23 +287,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-muted-foreground">Packet Count (per round)</label>
+                    <label className="text-xs text-muted-foreground">Sliding Window (samples)</label>
                     <Input
                       type="number"
                       min={3}
-                      max={50}
+                      max={100}
                       value={newTarget.packet_count}
-                      onChange={(e) => setNewTarget({ ...newTarget, packet_count: parseInt(e.target.value) || 15 })}
+                      onChange={(e) => setNewTarget({ ...newTarget, packet_count: parseInt(e.target.value) || 20 })}
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-muted-foreground">Interval (seconds)</label>
+                    <label className="text-xs text-muted-foreground">Ping Interval (seconds)</label>
                     <Input
                       type="number"
-                      min={10}
+                      min={5}
                       max={3600}
                       value={newTarget.interval_sec}
-                      onChange={(e) => setNewTarget({ ...newTarget, interval_sec: parseInt(e.target.value) || 60 })}
+                      onChange={(e) => setNewTarget({ ...newTarget, interval_sec: parseInt(e.target.value) || 30 })}
                     />
                   </div>
                 </div>
@@ -323,7 +323,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                 <TableRow>
                   <TableHead>Target</TableHead>
                   <TableHead>Host / IP</TableHead>
-                  <TableHead>Packets</TableHead>
+                  <TableHead>Window</TableHead>
                   <TableHead>Interval</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -334,7 +334,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                   <TableRow key={t.id}>
                     <TableCell className="font-semibold text-xs">{t.name}</TableCell>
                     <TableCell className="font-mono text-xs">{t.host}</TableCell>
-                    <TableCell className="text-xs">{t.packet_count} pkts</TableCell>
+                    <TableCell className="text-xs">{t.packet_count} samples</TableCell>
                     <TableCell className="text-xs">{t.interval_sec}s</TableCell>
                     <TableCell>
                       <Badge variant={t.enabled ? 'success' : 'secondary'}>
