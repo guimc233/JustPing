@@ -97,7 +97,7 @@ func getPublicMetrics(c *gin.Context) {
 	}
 
 	var metrics []model.PingMetric
-	if err := query.Order("timestamp asc").Limit(1000).Find(&metrics).Error; err != nil {
+	if err := query.Order("timestamp asc").Limit(10000).Find(&metrics).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
