@@ -108,5 +108,6 @@ type TracerouteRecord struct {
 	DurationMs int64         `json:"duration_ms"`
 	Reached    bool          `json:"reached"`
 	HopCount   int           `json:"hop_count"`
+	RoutePath  string        `gorm:"size:64" json:"route_path"`
 	Hops       []EnrichedHop `gorm:"serializer:json" json:"hops"`
 }

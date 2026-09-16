@@ -33,12 +33,14 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({ isAdmin }) => 
 
   const handleChartTimeClick = async (timestampMs: number) => {
     if (!selectedAgentId) return
+    console.log('[PublicDashboard] Chart timestamp clicked:', timestampMs, new Date(timestampMs).toLocaleString())
+    const effTargetId = selectedTargetId || targets[0]?.id || ''
     setTracerouteLoading(true)
     setTracerouteModalOpen(true)
     try {
       let url = `/api/public/traceroute?agent_id=${selectedAgentId}&time=${timestampMs}`
-      if (selectedTargetId) {
-        url += `&target_id=${selectedTargetId}`
+      if (effTargetId) {
+        url += `&target_id=${effTargetId}`
       }
       const res = await fetch(url)
       if (res.ok) {
@@ -57,12 +59,13 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({ isAdmin }) => 
 
   const handleOpenLatestTraceroute = async () => {
     if (!selectedAgentId) return
+    const effTargetId = selectedTargetId || targets[0]?.id || ''
     setTracerouteLoading(true)
     setTracerouteModalOpen(true)
     try {
       let url = `/api/public/traceroute?agent_id=${selectedAgentId}`
-      if (selectedTargetId) {
-        url += `&target_id=${selectedTargetId}`
+      if (effTargetId) {
+        url += `&target_id=${effTargetId}`
       }
       const res = await fetch(url)
       if (res.ok) {

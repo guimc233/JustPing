@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useRef } from 'react'
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -10,7 +10,7 @@ import {
   CartesianGrid,
   ReferenceArea,
 } from 'recharts'
-import { Flame, AlertTriangle, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Flame, AlertTriangle, AlertCircle, CheckCircle2, Route } from 'lucide-react'
 
 export interface MetricDataPoint {
   timestamp: string | Date
@@ -56,17 +56,19 @@ const SmokepingTooltip = ({
   payload,
   probeName,
   targetName,
+  onSelectTime,
 }: {
   active?: boolean
   payload?: Array<{ payload: MinuteSlot }>
   probeName?: string
   targetName?: string
+  onSelectTime?: (timestampMs: number) => void
 }) => {
   if (!active || !payload || !payload.length) return null
   const d = payload[0].payload
 
   return (
-    <div className="rounded-lg border border-border/80 bg-zinc-950/95 p-3 text-xs shadow-xl backdrop-blur-sm">
+    <div className="rounded-lg border border-border/80 bg-zinc-950/95 p-3 text-xs shadow-xl backdrop-blur-sm pointer-events-auto">
       <div className="flex items-center justify-between gap-4 border-b border-zinc-800 pb-2 mb-2">
         <div>
           <span className="font-semibold text-zinc-100">{probeName || 'Probe'}</span>
@@ -120,9 +122,23 @@ const SmokepingTooltip = ({
             </div>
           </>
         )}
-        <div className="pt-2 text-[10px] text-sky-400 font-sans flex items-center gap-1 border-t border-zinc-800/80">
-          <span>Click point to inspect route trace (点击查看路由追踪)</span>
-        </div>
+
+        {onSelectTime && (
+          <div className="pt-2 border-t border-zinc-800/80">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                onSelectTime(d.timestampMs)
+              }}
+              className="w-full flex items-center justify-center gap-1.5 rounded bg-primary/20 hover:bg-primary/30 text-primary border border-primary/40 py-1 px-2 text-[11px] font-sans font-medium transition cursor-pointer"
+            >
+              <Route className="size-3.5" />
+              <span>查看此时段路由追踪 (NextTrace)</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -135,6 +151,8 @@ export const SmokepingChart: React.FC<SmokepingChartProps> = ({
   loading,
   onSelectTime,
 }) => {
+  const hoveredSlotRef = useRef<MinuteSlot | null>(null)
+
   const { chartSlots, lossIntervals, spanHours } = useMemo(() => {
     if (!data || data.length === 0) {
       return { chartSlots: [], lossIntervals: [], spanHours: 1 }
@@ -310,18 +328,33 @@ export const SmokepingChart: React.FC<SmokepingChartProps> = ({
   return (
     <div className="flex flex-col gap-2 w-full">
       {/* Chart Canvas */}
-      <div className="h-[280px] w-full">
+      <div
+        className="h-[280px] w-full relative"
+        style={{ cursor: onSelectTime ? 'pointer' : 'default' }}
+        onClick={() => {
+          if (hoveredSlotRef.current?.timestampMs && onSelectTime) {
+            onSelectTime(hoveredSlotRef.current.timestampMs)
+          }
+        }}
+      >
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={chartSlots}
             margin={{ top: 12, right: 20, left: 10, bottom: 6 }}
-            style={{ cursor: onSelectTime ? 'pointer' : 'default' }}
+            onMouseMove={(e: any) => {
+              if (e?.activePayload?.[0]?.payload) {
+                hoveredSlotRef.current = e.activePayload[0].payload
+              } else if (e?.activeTooltipIndex !== undefined && chartSlots[e.activeTooltipIndex]) {
+                hoveredSlotRef.current = chartSlots[e.activeTooltipIndex]
+              }
+            }}
             onClick={(e: any) => {
-              if (e && e.activePayload && e.activePayload.length && onSelectTime) {
-                const slot = e.activePayload[0].payload as MinuteSlot
-                if (slot && slot.timestampMs) {
-                  onSelectTime(slot.timestampMs)
-                }
+              const slot =
+                (e?.activePayload?.[0]?.payload as MinuteSlot) ||
+                (e?.activeTooltipIndex !== undefined ? chartSlots[e.activeTooltipIndex] : null) ||
+                hoveredSlotRef.current
+              if (slot?.timestampMs && onSelectTime) {
+                onSelectTime(slot.timestampMs)
               }
             }}
           >
@@ -344,6 +377,7 @@ export const SmokepingChart: React.FC<SmokepingChartProps> = ({
                 fillOpacity={interval.isPersistent ? 0.24 : 0.18}
                 stroke="none"
                 ifOverflow="visible"
+                style={{ pointerEvents: 'none' }}
               />
             ))}
 
@@ -378,7 +412,11 @@ export const SmokepingChart: React.FC<SmokepingChartProps> = ({
 
             <Tooltip
               content={
-                <SmokepingTooltip probeName={probeName} targetName={targetName} />
+                <SmokepingTooltip
+                  probeName={probeName}
+                  targetName={targetName}
+                  onSelectTime={onSelectTime}
+                />
               }
             />
 

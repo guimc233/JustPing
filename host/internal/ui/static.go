@@ -40,7 +40,7 @@ func SetupStaticServ(r *gin.Engine) {
 		r.GET("/", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
 				"service": "JustPing Host API",
-				"version": "1.0.7",
+				"version": "1.0.8",
 				"status":  "running",
 				"hint":    "Frontend assets not found.",
 			})

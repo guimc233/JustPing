@@ -39,6 +39,7 @@ export interface TracerouteRecord {
   duration_ms: number
   reached: boolean
   hop_count: number
+  route_path?: string
   hops: EnrichedHop[]
 }
 
@@ -98,6 +99,11 @@ export const TracerouteDetail: React.FC<TracerouteDetailProps> = ({
                 <h2 className="text-base font-bold text-foreground">
                   NextTrace Route Telemetry: {agentName || 'Probe'} → {targetName || record?.target_host || 'Target'}
                 </h2>
+                {record?.route_path && (
+                  <Badge variant="secondary" className="font-bold text-[11px] bg-amber-500/15 text-amber-300 border-amber-500/30">
+                    {record.route_path}
+                  </Badge>
+                )}
                 {record?.reached ? (
                   <Badge variant="success" className="gap-1 text-[10px]">
                     <CheckCircle2 className="size-3" /> Reached (到达目标)
@@ -158,8 +164,8 @@ export const TracerouteDetail: React.FC<TracerouteDetailProps> = ({
               >
                 {historyList.map((h) => (
                   <option key={h.id} value={h.id}>
-                    {new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (
-                    {h.hop_count} hops, {h.reached ? 'Reached' : 'Max 30'})
+                    {new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {h.route_path ? ` [${h.route_path}]` : ''} ({h.hop_count} hops, {h.reached ? 'Reached' : 'Max 30'})
                   </option>
                 ))}
               </select>

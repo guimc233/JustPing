@@ -237,6 +237,18 @@ func (ac *AgentConn) persistTracerouteReport(report protocol.TracerouteReportPay
 		enrichedHops = append(enrichedHops, eh)
 	}
 
+	// Classify the route path (e.g. CN2 GIA, 9929, 4837, CMIN2) using TcpQuality algorithm
+	hopMetas := make([]ipgeo.HopMeta, len(enrichedHops))
+	for i, h := range enrichedHops {
+		hopMetas[i] = ipgeo.HopMeta{
+			IP:       h.IP,
+			ASNumber: h.ASNumber,
+			ASOrg:    h.ASOrg,
+			ISP:      h.ISP,
+		}
+	}
+	routePath := ipgeo.ClassifyRoute(hopMetas, report.TargetHost, "")
+
 	rec := model.TracerouteRecord{
 		ID:         uuid.New().String(),
 		AgentID:    ac.AgentID,
@@ -247,6 +259,7 @@ func (ac *AgentConn) persistTracerouteReport(report protocol.TracerouteReportPay
 		DurationMs: report.DurationMs,
 		Reached:    report.Reached,
 		HopCount:   len(enrichedHops),
+		RoutePath:  routePath,
 		Hops:       enrichedHops,
 	}
 
