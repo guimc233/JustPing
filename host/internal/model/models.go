@@ -80,3 +80,33 @@ type PingMetric struct {
 	StdDev      float64   `gorm:"type:numeric(8,2)" json:"std_dev_ms"`
 	ErrorMsg    string    `gorm:"size:255" json:"error_msg,omitempty"`
 }
+
+// EnrichedHop represents NextTrace-style hop information with ASN and Geo metadata
+type EnrichedHop struct {
+	TTL         int       `json:"ttl"`
+	IP          string    `json:"ip"`
+	Hostname    string    `json:"hostname,omitempty"`
+	RTTs        []float64 `json:"rtts_ms"`
+	AvgRTT      float64   `json:"avg_rtt_ms"`
+	LossPct     float64   `json:"loss_pct"`
+	ASNumber    string    `json:"as_number,omitempty"`
+	ASOrg       string    `json:"as_org,omitempty"`
+	ISP         string    `json:"isp,omitempty"`
+	Country     string    `json:"country,omitempty"`
+	CountryCode string    `json:"country_code,omitempty"`
+	City        string    `json:"city,omitempty"`
+}
+
+// TracerouteRecord stores full traceroute path telemetry
+type TracerouteRecord struct {
+	ID         string        `gorm:"primaryKey;size:36" json:"id"`
+	AgentID    string        `gorm:"size:36;index:idx_trace_agent_time,priority:1;index:idx_trace_agent_target,priority:1;not null" json:"agent_id"`
+	TargetID   string        `gorm:"size:36;index:idx_trace_target_time,priority:1;index:idx_trace_agent_target,priority:2;not null" json:"target_id"`
+	TargetHost string        `gorm:"size:255;not null" json:"target_host"`
+	ResolvedIP string        `gorm:"size:128" json:"resolved_ip"`
+	Timestamp  time.Time     `gorm:"index:idx_trace_agent_time,priority:2;index:idx_trace_target_time,priority:2;index;not null" json:"timestamp"`
+	DurationMs int64         `json:"duration_ms"`
+	Reached    bool          `json:"reached"`
+	HopCount   int           `json:"hop_count"`
+	Hops       []EnrichedHop `gorm:"serializer:json" json:"hops"`
+}

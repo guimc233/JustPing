@@ -55,6 +55,7 @@ func InitDB() (*gorm.DB, error) {
 		&model.Target{},
 		&model.Agent{},
 		&model.PingMetric{},
+		&model.TracerouteRecord{},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to auto-migrate database: %w", err)
@@ -136,6 +137,7 @@ func StartRetentionCleaner(interval time.Duration) {
 			} else if res.RowsAffected > 0 {
 				log.Printf("[DB] Retention cleaner pruned %d metrics older than %d days\n", res.RowsAffected, retentionDays)
 			}
+			_ = DB.Where("timestamp < ?", cutoff).Delete(&model.TracerouteRecord{})
 		}
 	}()
 }

@@ -12,6 +12,7 @@ const (
 	TypeHeartbeatAck     MessageType = "heartbeat_ack"
 	TypeTargetSync       MessageType = "target_sync"
 	TypePingReport       MessageType = "ping_report"
+	TypeTracerouteReport MessageType = "traceroute_report"
 	TypeError            MessageType = "error"
 )
 
@@ -79,4 +80,26 @@ type HeartbeatPayload struct {
 	AgentID string  `json:"agent_id"`
 	Uptime  uint64  `json:"uptime_sec"`
 	LoadAvg float64 `json:"load_avg,omitempty"`
+}
+
+// TracerouteHop represents a single hop in a traceroute path (1..30)
+type TracerouteHop struct {
+	TTL      int       `json:"ttl"`
+	IP       string    `json:"ip,omitempty"`
+	Hostname string    `json:"hostname,omitempty"`
+	RTTs     []float64 `json:"rtts_ms"`
+	AvgRTT   float64   `json:"avg_rtt_ms"`
+	LossPct  float64   `json:"loss_pct"`
+}
+
+// TracerouteReportPayload is sent from Agent to Host with complete route trace results
+type TracerouteReportPayload struct {
+	AgentID    string          `json:"agent_id"`
+	TargetID   string          `json:"target_id,omitempty"`
+	TargetHost string          `json:"target_host"`
+	ResolvedIP string          `json:"resolved_ip"`
+	Timestamp  time.Time       `json:"timestamp"`
+	DurationMs int64           `json:"duration_ms"`
+	Reached    bool            `json:"reached"`
+	Hops       []TracerouteHop `json:"hops"`
 }

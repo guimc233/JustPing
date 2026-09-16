@@ -29,6 +29,7 @@ interface SmokepingChartProps {
   probeName?: string
   targetName?: string
   loading?: boolean
+  onSelectTime?: (timestampMs: number) => void
 }
 
 interface MinuteSlot {
@@ -119,6 +120,9 @@ const SmokepingTooltip = ({
             </div>
           </>
         )}
+        <div className="pt-2 text-[10px] text-sky-400 font-sans flex items-center gap-1 border-t border-zinc-800/80">
+          <span>Click point to inspect route trace (点击查看路由追踪)</span>
+        </div>
       </div>
     </div>
   )
@@ -129,6 +133,7 @@ export const SmokepingChart: React.FC<SmokepingChartProps> = ({
   probeName,
   targetName,
   loading,
+  onSelectTime,
 }) => {
   const { chartSlots, lossIntervals, spanHours } = useMemo(() => {
     if (!data || data.length === 0) {
@@ -310,6 +315,15 @@ export const SmokepingChart: React.FC<SmokepingChartProps> = ({
           <ComposedChart
             data={chartSlots}
             margin={{ top: 12, right: 20, left: 10, bottom: 6 }}
+            style={{ cursor: onSelectTime ? 'pointer' : 'default' }}
+            onClick={(e: any) => {
+              if (e && e.activePayload && e.activePayload.length && onSelectTime) {
+                const slot = e.activePayload[0].payload as MinuteSlot
+                if (slot && slot.timestampMs) {
+                  onSelectTime(slot.timestampMs)
+                }
+              }
+            }}
           >
             <defs>
               <linearGradient id="latencyGradient" x1="0" y1="0" x2="0" y2="1">

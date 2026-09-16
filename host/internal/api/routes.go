@@ -34,6 +34,9 @@ func RegisterRoutes(r *gin.Engine) {
 		public.GET("/targets", getPublicTargets)
 		public.GET("/matrix", getPublicMatrix)
 		public.GET("/metrics", getPublicMetrics)
+		public.GET("/traceroute", getPublicTraceroute)
+		public.GET("/traceroutes", getPublicTraceroutes)
+		public.GET("/traceroute/:id", getPublicTracerouteByID)
 	}
 
 	// Admin endpoints (Protected)

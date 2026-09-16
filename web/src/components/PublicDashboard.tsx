@@ -3,8 +3,9 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/
 import { Button } from './ui/button'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from './ui/table'
 import { Badge } from './ui/badge'
-import { Server, Zap, Shield, RefreshCw, ChevronRight, BarChart3, Wifi, Target, Activity } from 'lucide-react'
+import { Server, Zap, Shield, RefreshCw, ChevronRight, BarChart3, Wifi, Target, Activity, Route } from 'lucide-react'
 import { SmokepingChart, type MetricDataPoint } from './SmokepingChart'
+import { TracerouteDetail } from './TracerouteDetail'
 
 interface PublicDashboardProps {
   isAdmin: boolean
@@ -24,6 +25,74 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({ isAdmin }) => 
   const [chartData, setChartData] = useState<MetricDataPoint[]>([])
   const [chartLoading, setChartLoading] = useState(false)
   const inspectCardRef = useRef<HTMLDivElement>(null)
+
+  // Traceroute telemetry modal state
+  const [tracerouteModalOpen, setTracerouteModalOpen] = useState(false)
+  const [selectedTraceroute, setSelectedTraceroute] = useState<any>(null)
+  const [tracerouteLoading, setTracerouteLoading] = useState(false)
+
+  const handleChartTimeClick = async (timestampMs: number) => {
+    if (!selectedAgentId) return
+    setTracerouteLoading(true)
+    setTracerouteModalOpen(true)
+    try {
+      let url = `/api/public/traceroute?agent_id=${selectedAgentId}&time=${timestampMs}`
+      if (selectedTargetId) {
+        url += `&target_id=${selectedTargetId}`
+      }
+      const res = await fetch(url)
+      if (res.ok) {
+        const data = await res.json()
+        setSelectedTraceroute(data)
+      } else {
+        setSelectedTraceroute(null)
+      }
+    } catch (err) {
+      console.error('Failed to query traceroute for timestamp:', err)
+      setSelectedTraceroute(null)
+    } finally {
+      setTracerouteLoading(false)
+    }
+  }
+
+  const handleOpenLatestTraceroute = async () => {
+    if (!selectedAgentId) return
+    setTracerouteLoading(true)
+    setTracerouteModalOpen(true)
+    try {
+      let url = `/api/public/traceroute?agent_id=${selectedAgentId}`
+      if (selectedTargetId) {
+        url += `&target_id=${selectedTargetId}`
+      }
+      const res = await fetch(url)
+      if (res.ok) {
+        const data = await res.json()
+        setSelectedTraceroute(data)
+      } else {
+        setSelectedTraceroute(null)
+      }
+    } catch (err) {
+      console.error('Failed to query latest traceroute:', err)
+      setSelectedTraceroute(null)
+    } finally {
+      setTracerouteLoading(false)
+    }
+  }
+
+  const handleSelectTracerouteRecord = async (recordId: string) => {
+    setTracerouteLoading(true)
+    try {
+      const res = await fetch(`/api/public/traceroute/${recordId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setSelectedTraceroute(data)
+      }
+    } catch (err) {
+      console.error('Failed to load traceroute by ID:', err)
+    } finally {
+      setTracerouteLoading(false)
+    }
+  }
 
   const fetchData = async () => {
     try {
@@ -315,19 +384,32 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({ isAdmin }) => 
                 </CardDescription>
               </div>
 
-              {/* Time range selector */}
-              <div className="flex rounded-md border border-border bg-muted/40 p-0.5 self-start md:self-auto">
-                {['1h', '6h', '24h', '7d'].map((r) => (
-                  <button
-                    key={r}
-                    onClick={() => setChartRange(r)}
-                    className={`rounded px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
-                      chartRange === r ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {r}
-                  </button>
-                ))}
+              {/* Time range selector & Traceroute Button */}
+              <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleOpenLatestTraceroute}
+                  className="gap-1.5 text-xs h-7.5 border-primary/40 text-primary hover:bg-primary/10 hover:text-primary cursor-pointer"
+                  title="View NextTrace route hops for this probe"
+                >
+                  <Route className="size-3.5" />
+                  <span>NextTrace Route</span>
+                </Button>
+
+                <div className="flex rounded-md border border-border bg-muted/40 p-0.5">
+                  {['1h', '6h', '24h', '7d'].map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => setChartRange(r)}
+                      className={`rounded px-2.5 py-1 text-xs font-medium transition cursor-pointer ${
+                        chartRange === r ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -361,6 +443,7 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({ isAdmin }) => 
               probeName={selectedAgent.name}
               targetName={selectedTarget?.name}
               loading={chartLoading}
+              onSelectTime={handleChartTimeClick}
             />
           </CardContent>
         </Card>
@@ -455,6 +538,20 @@ export const PublicDashboard: React.FC<PublicDashboardProps> = ({ isAdmin }) => 
           )}
         </CardContent>
       </Card>
+
+      {/* NextTrace Route Telemetry Modal */}
+      {tracerouteModalOpen && (
+        <TracerouteDetail
+          record={selectedTraceroute}
+          loading={tracerouteLoading}
+          onClose={() => setTracerouteModalOpen(false)}
+          agentName={selectedAgent?.name}
+          targetName={selectedTarget?.name}
+          agentId={selectedAgentId}
+          targetId={selectedTargetId}
+          onSelectRecord={handleSelectTracerouteRecord}
+        />
+      )}
     </div>
   )
 }

@@ -1,13 +1,16 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/guimc233/JustPing/host/internal/db"
+	"github.com/guimc233/JustPing/host/internal/ipgeo"
 	"github.com/guimc233/JustPing/host/internal/model"
 	"github.com/guimc233/JustPing/shared/protocol"
 )
@@ -137,6 +140,14 @@ func (ac *AgentConn) handleIncomingMessage(env protocol.Envelope) {
 		}
 
 		ac.persistPingReport(report)
+
+	case protocol.TypeTracerouteReport:
+		raw, _ := json.Marshal(env.Payload)
+		var report protocol.TracerouteReportPayload
+		if err := json.Unmarshal(raw, &report); err != nil {
+			return
+		}
+		go ac.persistTracerouteReport(report)
 	}
 }
 
@@ -180,6 +191,66 @@ func (ac *AgentConn) persistPingReport(report protocol.PingReportPayload) {
 	if len(metrics) > 0 {
 		_ = db.DB.CreateInBatches(metrics, 100)
 	}
+
+	_ = db.DB.Model(&model.Agent{}).Where("id = ?", ac.AgentID).Updates(map[string]any{
+		"is_online":    true,
+		"last_seen_at": now,
+	})
+}
+
+func (ac *AgentConn) persistTracerouteReport(report protocol.TracerouteReportPayload) {
+	if len(report.Hops) == 0 && report.TargetHost == "" {
+		return
+	}
+
+	now := time.Now()
+	ts := report.Timestamp
+	if ts.IsZero() || ts.After(now.Add(5*time.Minute)) || ts.Before(now.Add(-48*time.Hour)) {
+		ts = now
+	}
+
+	// Enrich each hop with NextTrace GeoIP & ASN data concurrently with a context
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	enrichedHops := make([]model.EnrichedHop, 0, len(report.Hops))
+	for _, h := range report.Hops {
+		eh := model.EnrichedHop{
+			TTL:      h.TTL,
+			IP:       h.IP,
+			Hostname: h.Hostname,
+			RTTs:     h.RTTs,
+			AvgRTT:   h.AvgRTT,
+			LossPct:  h.LossPct,
+		}
+
+		if h.IP != "" && h.IP != "*" {
+			geo := ipgeo.Lookup(ctx, h.IP)
+			eh.ASNumber = geo.ASNumber
+			eh.ASOrg = geo.ASOrg
+			eh.ISP = geo.ISP
+			eh.Country = geo.Country
+			eh.CountryCode = geo.CountryCode
+			eh.City = geo.City
+		}
+
+		enrichedHops = append(enrichedHops, eh)
+	}
+
+	rec := model.TracerouteRecord{
+		ID:         uuid.New().String(),
+		AgentID:    ac.AgentID,
+		TargetID:   report.TargetID,
+		TargetHost: report.TargetHost,
+		ResolvedIP: report.ResolvedIP,
+		Timestamp:  ts,
+		DurationMs: report.DurationMs,
+		Reached:    report.Reached,
+		HopCount:   len(enrichedHops),
+		Hops:       enrichedHops,
+	}
+
+	_ = db.DB.Create(&rec)
 
 	_ = db.DB.Model(&model.Agent{}).Where("id = ?", ac.AgentID).Updates(map[string]any{
 		"is_online":    true,

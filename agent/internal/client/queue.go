@@ -32,6 +32,20 @@ func (c *Client) QueueReport(report protocol.PingReportPayload) {
 	c.reportQueue = append(c.reportQueue, report)
 }
 
+// SendTracerouteReport sends a traceroute report immediately to host if online
+func (c *Client) SendTracerouteReport(report protocol.TracerouteReportPayload) {
+	c.mu.Lock()
+	conn := c.conn
+	isOnline := c.online && conn != nil
+	agentID := c.agentID
+	c.mu.Unlock()
+
+	if isOnline {
+		report.AgentID = agentID
+		_ = c.sendEnvelope(protocol.TypeTracerouteReport, report)
+	}
+}
+
 func (c *Client) flushQueuedReports() {
 	c.queueMu.Lock()
 	defer c.queueMu.Unlock()
