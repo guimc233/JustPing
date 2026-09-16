@@ -17,6 +17,8 @@ import {
   Terminal,
   ShieldCheck,
   KeyRound,
+  Route,
+  X,
 } from 'lucide-react'
 
 interface AdminPanelProps {
@@ -35,6 +37,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
     packet_count: 20,
     interval_sec: 30,
     tags: '',
+    disable_route: false,
   })
 
   // Agents state
@@ -43,6 +46,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   const [newAgentName, setNewAgentName] = useState('')
   const [enrollResult, setEnrollResult] = useState<any>(null)
   const [copiedCmd, setCopiedCmd] = useState(false)
+  const [editingAgentRoutes, setEditingAgentRoutes] = useState<any>(null)
+  const [agentRouteDisabledMap, setAgentRouteDisabledMap] = useState<{ [targetId: string]: boolean }>({})
 
   // Whitelist state
   const [whitelist, setWhitelist] = useState<any[]>([])
@@ -92,7 +97,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
       body: JSON.stringify(newTarget),
     })
     if (res.ok) {
-      setNewTarget({ name: '', host: '', packet_count: 20, interval_sec: 30, tags: '' })
+      setNewTarget({ name: '', host: '', packet_count: 20, interval_sec: 30, tags: '', disable_route: false })
       setShowAddTarget(false)
       loadTargets()
     } else {
@@ -123,6 +128,51 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
     } else {
       const err = await res.json().catch(() => ({}))
       alert(err.error || 'Failed to update target status')
+    }
+  }
+
+  const handleToggleTargetRoute = async (t: any) => {
+    const res = await fetch(`/api/admin/targets/${t.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ disable_route: !t.disable_route }),
+    })
+    if (res.ok) {
+      loadTargets()
+    } else {
+      const err = await res.json().catch(() => ({}))
+      alert(err.error || 'Failed to update target route status')
+    }
+  }
+
+  const handleOpenAgentRouteModal = (agent: any) => {
+    const map: { [targetId: string]: boolean } = {}
+    if (agent.disabled_route_targets) {
+      agent.disabled_route_targets.split(',').forEach((id: string) => {
+        const trimmed = id.trim()
+        if (trimmed) map[trimmed] = true
+      })
+    }
+    setAgentRouteDisabledMap(map)
+    setEditingAgentRoutes(agent)
+  }
+
+  const handleSaveAgentRouteOverrides = async () => {
+    if (!editingAgentRoutes) return
+    const disabledList = Object.keys(agentRouteDisabledMap).filter((id) => agentRouteDisabledMap[id])
+    const res = await fetch(`/api/admin/agents/${editingAgentRoutes.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        disabled_route_targets: disabledList.join(','),
+      }),
+    })
+    if (res.ok) {
+      setEditingAgentRoutes(null)
+      loadAgents()
+    } else {
+      const err = await res.json().catch(() => ({}))
+      alert(err.error || 'Failed to save route overrides')
     }
   }
 
@@ -307,6 +357,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                     />
                   </div>
                 </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="disableRouteCheck"
+                    checked={newTarget.disable_route}
+                    onChange={(e) => setNewTarget({ ...newTarget, disable_route: e.target.checked })}
+                    className="rounded border-border text-primary focus:ring-primary size-3.5 cursor-pointer"
+                  />
+                  <label htmlFor="disableRouteCheck" className="text-xs text-muted-foreground cursor-pointer select-none">
+                    Disable Route Trace (为此目标全局关闭路由检测)
+                  </label>
+                </div>
                 <div className="flex justify-end gap-2 pt-2">
                   <Button type="button" variant="ghost" size="sm" onClick={() => setShowAddTarget(false)}>
                     Cancel
@@ -325,6 +387,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                   <TableHead>Host / IP</TableHead>
                   <TableHead>Window</TableHead>
                   <TableHead>Interval</TableHead>
+                  <TableHead>Route Trace</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -336,6 +399,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                     <TableCell className="font-mono text-xs">{t.host}</TableCell>
                     <TableCell className="text-xs">{t.packet_count} samples</TableCell>
                     <TableCell className="text-xs">{t.interval_sec}s</TableCell>
+                    <TableCell>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleTargetRoute(t)}
+                        className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium border cursor-pointer transition ${
+                          t.disable_route
+                            ? 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
+                            : 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20'
+                        }`}
+                        title={t.disable_route ? 'Click to Enable Route Trace' : 'Click to Disable Route Trace'}
+                      >
+                        <Route className="size-3" />
+                        <span>{t.disable_route ? 'Disabled' : 'Active'}</span>
+                      </button>
+                    </TableCell>
                     <TableCell>
                       <Badge variant={t.enabled ? 'success' : 'secondary'}>
                         {t.enabled ? 'Enabled' : 'Disabled'}
@@ -456,6 +534,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right space-x-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleOpenAgentRouteModal(a)}
+                        title="Route Trace Overrides (配置此节点对特定目标的路由检测)"
+                        className="text-primary hover:text-primary"
+                      >
+                        <Route className="size-3.5" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -687,6 +774,92 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
             </form>
           </CardContent>
         </Card>
+      )}
+
+      {/* Agent Route Overrides Modal */}
+      {editingAgentRoutes && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-lg rounded-xl border border-border bg-background p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2">
+                <Route className="size-5 text-primary" />
+                <h3 className="text-base font-bold">
+                  Route Trace Overrides: <span className="text-primary">{editingAgentRoutes.name}</span>
+                </h3>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setEditingAgentRoutes(null)}
+                className="size-7"
+              >
+                <X className="size-4" />
+              </Button>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              勾选以下目标以<strong>关闭</strong>该探针节点对其的路由追踪检测。未勾选的目标将保持正常的 12 小时与突变触发检测。
+            </p>
+
+            <div className="max-h-60 overflow-y-auto space-y-2 border border-border/80 rounded-lg p-3 bg-muted/20">
+              {targets.length === 0 ? (
+                <div className="text-xs text-muted-foreground text-center py-4">暂无配置的目标</div>
+              ) : (
+                targets.map((tg) => {
+                  const isDisabled = !!agentRouteDisabledMap[tg.id]
+                  return (
+                    <label
+                      key={tg.id}
+                      className={`flex items-center justify-between p-2 rounded-md border text-xs cursor-pointer transition ${
+                        isDisabled
+                          ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+                          : 'border-border bg-card/60 text-foreground hover:bg-muted/40'
+                      }`}
+                    >
+                      <div className="space-y-0.5">
+                        <div className="font-semibold">{tg.name}</div>
+                        <div className="text-[10px] text-muted-foreground font-mono">{tg.host}</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px]">
+                          {isDisabled ? (
+                            <span className="text-amber-400 font-medium">Route 已关闭</span>
+                          ) : (
+                            <span className="text-emerald-400">Route 正常开启</span>
+                          )}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={isDisabled}
+                          onChange={(e) => {
+                            setAgentRouteDisabledMap({
+                              ...agentRouteDisabledMap,
+                              [tg.id]: e.target.checked,
+                            })
+                          }}
+                          className="size-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                        />
+                      </div>
+                    </label>
+                  )
+                })
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-border/60">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setEditingAgentRoutes(null)}
+              >
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSaveAgentRouteOverrides}>
+                Save Overrides
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

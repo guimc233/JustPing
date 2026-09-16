@@ -13,21 +13,23 @@ import (
 )
 
 type CreateTargetReq struct {
-	Name        string `json:"name" binding:"required"`
-	Host        string `json:"host" binding:"required"`
-	PacketCount int    `json:"packet_count"`
-	IntervalSec int    `json:"interval_sec"`
-	Tags        string `json:"tags"`
-	Enabled     *bool  `json:"enabled"`
+	Name         string `json:"name" binding:"required"`
+	Host         string `json:"host" binding:"required"`
+	PacketCount  int    `json:"packet_count"`
+	IntervalSec  int    `json:"interval_sec"`
+	Tags         string `json:"tags"`
+	Enabled      *bool  `json:"enabled"`
+	DisableRoute *bool  `json:"disable_route"`
 }
 
 type UpdateTargetReq struct {
-	Name        *string `json:"name"`
-	Host        *string `json:"host"`
-	PacketCount *int    `json:"packet_count"`
-	IntervalSec *int    `json:"interval_sec"`
-	Tags        *string `json:"tags"`
-	Enabled     *bool   `json:"enabled"`
+	Name         *string `json:"name"`
+	Host         *string `json:"host"`
+	PacketCount  *int    `json:"packet_count"`
+	IntervalSec  *int    `json:"interval_sec"`
+	Tags         *string `json:"tags"`
+	Enabled      *bool   `json:"enabled"`
+	DisableRoute *bool   `json:"disable_route"`
 }
 
 func adminListTargets(c *gin.Context) {
@@ -66,16 +68,22 @@ func adminCreateTarget(c *gin.Context) {
 		enabled = *req.Enabled
 	}
 
+	disableRoute := false
+	if req.DisableRoute != nil {
+		disableRoute = *req.DisableRoute
+	}
+
 	target := model.Target{
-		ID:          uuid.New().String(),
-		Name:        strings.TrimSpace(req.Name),
-		Host:        strings.TrimSpace(req.Host),
-		PacketCount: pktCount,
-		IntervalSec: interval,
-		Tags:        strings.TrimSpace(req.Tags),
-		Enabled:     enabled,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		ID:           uuid.New().String(),
+		Name:         strings.TrimSpace(req.Name),
+		Host:         strings.TrimSpace(req.Host),
+		PacketCount:  pktCount,
+		IntervalSec:  interval,
+		Tags:         strings.TrimSpace(req.Tags),
+		Enabled:      enabled,
+		DisableRoute: disableRoute,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 	}
 
 	if err := db.DB.Create(&target).Error; err != nil {
@@ -127,6 +135,10 @@ func adminUpdateTarget(c *gin.Context) {
 	if req.Enabled != nil {
 		target.Enabled = *req.Enabled
 	}
+	if req.DisableRoute != nil {
+		target.DisableRoute = *req.DisableRoute
+	}
+
 	target.UpdatedAt = time.Now()
 
 	if err := db.DB.Save(&target).Error; err != nil {

@@ -121,18 +121,18 @@ func getPublicTraceroutes(c *gin.Context) {
 	}
 
 	type TraceSummary struct {
-		ID         string          `json:"id"`
-		AgentID    string          `json:"agent_id"`
-		TargetID   string          `json:"target_id"`
-		TargetHost string          `json:"target_host"`
-		ResolvedIP string          `json:"resolved_ip"`
-		Timestamp  time.Time       `json:"timestamp"`
-		DurationMs int64           `json:"duration_ms"`
-		Reached    bool            `json:"reached"`
-		HopCount   int             `json:"hop_count"`
-		RoutePath  string          `json:"route_path"`
-		ASPath     string          `json:"as_path"`
-		ASNodes    []model.ASNode  `json:"as_nodes"`
+		ID         string         `json:"id"`
+		AgentID    string         `json:"agent_id"`
+		TargetID   string         `json:"target_id"`
+		TargetHost string         `json:"target_host"`
+		ResolvedIP string         `json:"resolved_ip"`
+		Timestamp  time.Time      `json:"timestamp"`
+		DurationMs int64          `json:"duration_ms"`
+		Reached    bool           `json:"reached"`
+		HopCount   int            `json:"hop_count"`
+		RoutePath  string         `json:"route_path"`
+		ASPath     string         `json:"as_path"`
+		ASNodes    []model.ASNode `json:"as_nodes"`
 	}
 
 	summaries := make([]TraceSummary, 0, len(records))
@@ -221,4 +221,3 @@ func diffDuration(a, b time.Time) time.Duration {
 	}
 	return d
 }
-

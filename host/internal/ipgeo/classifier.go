@@ -422,4 +422,3 @@ func simplifyASName(asn, org, isp string) string {
 	}
 	return raw
 }
-

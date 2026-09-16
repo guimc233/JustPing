@@ -109,8 +109,9 @@ func adminUpdateAgent(c *gin.Context) {
 	}
 
 	var req struct {
-		Name string `json:"name"`
-		Tags string `json:"tags"`
+		Name                 string  `json:"name"`
+		Tags                 string  `json:"tags"`
+		DisabledRouteTargets *string `json:"disabled_route_targets"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -121,9 +122,13 @@ func adminUpdateAgent(c *gin.Context) {
 		agent.Name = req.Name
 	}
 	agent.Tags = req.Tags
+	if req.DisabledRouteTargets != nil {
+		agent.DisabledRouteTargets = *req.DisabledRouteTargets
+	}
 	agent.UpdatedAt = time.Now()
 
 	db.DB.Save(&agent)
+	ws.DefaultHub.SyncSingleAgent(agent.ID)
 	c.JSON(http.StatusOK, agent)
 }
 

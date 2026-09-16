@@ -37,31 +37,33 @@ type User struct {
 
 // Target represents a monitoring destination for ICMP ping
 type Target struct {
-	ID          string    `gorm:"primaryKey;size:36" json:"id"`
-	Name        string    `gorm:"size:128;not null" json:"name"`
-	Host        string    `gorm:"size:255;not null" json:"host"`
-	PacketCount int       `gorm:"default:20" json:"packet_count"` // sliding window sample size (e.g. 20 samples = 10 min)
-	IntervalSec int       `gorm:"default:30" json:"interval_sec"` // probe interval in seconds (default: 30s)
-	Tags        string    `gorm:"size:255" json:"tags"`
-	Enabled     bool      `gorm:"default:true" json:"enabled"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID           string    `gorm:"primaryKey;size:36" json:"id"`
+	Name         string    `gorm:"size:128;not null" json:"name"`
+	Host         string    `gorm:"size:255;not null" json:"host"`
+	PacketCount  int       `gorm:"default:20" json:"packet_count"` // sliding window sample size (e.g. 20 samples = 10 min)
+	IntervalSec  int       `gorm:"default:30" json:"interval_sec"` // probe interval in seconds (default: 30s)
+	Tags         string    `gorm:"size:255" json:"tags"`
+	Enabled      bool      `gorm:"default:true" json:"enabled"`
+	DisableRoute bool      `gorm:"default:false" json:"disable_route"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // Agent represents a distributed ping probe
 type Agent struct {
-	ID         string    `gorm:"primaryKey;size:36" json:"id"`
-	Name       string    `gorm:"size:128;not null" json:"name"`
-	Token      string    `gorm:"uniqueIndex;size:64;not null" json:"-"`
-	PublicIP   string    `gorm:"size:128" json:"public_ip"`
-	OS         string    `gorm:"size:64" json:"os"`
-	Arch       string    `gorm:"size:64" json:"arch"`
-	Version    string    `gorm:"size:32" json:"version"`
-	Tags       string    `gorm:"size:255" json:"tags"`
-	IsOnline   bool      `gorm:"default:false" json:"is_online"`
-	LastSeenAt time.Time `json:"last_seen_at"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID                   string    `gorm:"primaryKey;size:36" json:"id"`
+	Name                 string    `gorm:"size:128;not null" json:"name"`
+	Token                string    `gorm:"uniqueIndex;size:64;not null" json:"-"`
+	PublicIP             string    `gorm:"size:128" json:"public_ip"`
+	OS                   string    `gorm:"size:64" json:"os"`
+	Arch                 string    `gorm:"size:64" json:"arch"`
+	Version              string    `gorm:"size:32" json:"version"`
+	Tags                 string    `gorm:"size:255" json:"tags"`
+	DisabledRouteTargets string    `gorm:"type:text" json:"disabled_route_targets"` // comma-separated target IDs where route testing is disabled for this agent
+	IsOnline             bool      `gorm:"default:false" json:"is_online"`
+	LastSeenAt           time.Time `json:"last_seen_at"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 // PingMetric represents the ping quality measurements

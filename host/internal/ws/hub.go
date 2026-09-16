@@ -3,6 +3,7 @@ package ws
 import (
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -109,19 +110,6 @@ func (h *Hub) BroadcastTargetSync() {
 		return
 	}
 
-	syncConfigs := make([]protocol.TargetConfig, 0, len(targets))
-	for _, t := range targets {
-		syncConfigs = append(syncConfigs, protocol.TargetConfig{
-			ID:          t.ID,
-			Name:        t.Name,
-			Host:        t.Host,
-			PacketCount: t.PacketCount,
-			IntervalSec: t.IntervalSec,
-		})
-	}
-
-	payload := protocol.TargetSyncPayload{Targets: syncConfigs}
-
 	h.mu.RLock()
 	agentIDs := make([]string, 0, len(h.agents))
 	for id := range h.agents {
@@ -130,7 +118,8 @@ func (h *Hub) BroadcastTargetSync() {
 	h.mu.RUnlock()
 
 	for _, id := range agentIDs {
-		_ = h.SendToAgent(id, protocol.TypeTargetSync, payload)
+		configs := buildTargetConfigs(id, targets)
+		_ = h.SendToAgent(id, protocol.TypeTargetSync, protocol.TargetSyncPayload{Targets: configs})
 	}
 }
 
@@ -141,16 +130,34 @@ func (h *Hub) SyncSingleAgent(agentID string) {
 		return
 	}
 
-	syncConfigs := make([]protocol.TargetConfig, 0, len(targets))
-	for _, t := range targets {
-		syncConfigs = append(syncConfigs, protocol.TargetConfig{
-			ID:          t.ID,
-			Name:        t.Name,
-			Host:        t.Host,
-			PacketCount: t.PacketCount,
-			IntervalSec: t.IntervalSec,
-		})
+	configs := buildTargetConfigs(agentID, targets)
+	_ = h.SendToAgent(agentID, protocol.TypeTargetSync, protocol.TargetSyncPayload{Targets: configs})
+}
+
+func buildTargetConfigs(agentID string, targets []model.Target) []protocol.TargetConfig {
+	disabledMap := make(map[string]bool)
+	if agentID != "" {
+		var ag model.Agent
+		if err := db.DB.Select("disabled_route_targets").First(&ag, "id = ?", agentID).Error; err == nil && ag.DisabledRouteTargets != "" {
+			for _, id := range strings.Split(ag.DisabledRouteTargets, ",") {
+				id = strings.TrimSpace(id)
+				if id != "" {
+					disabledMap[id] = true
+				}
+			}
+		}
 	}
 
-	_ = h.SendToAgent(agentID, protocol.TypeTargetSync, protocol.TargetSyncPayload{Targets: syncConfigs})
+	configs := make([]protocol.TargetConfig, 0, len(targets))
+	for _, t := range targets {
+		configs = append(configs, protocol.TargetConfig{
+			ID:           t.ID,
+			Name:         t.Name,
+			Host:         t.Host,
+			PacketCount:  t.PacketCount,
+			IntervalSec:  t.IntervalSec,
+			DisableRoute: t.DisableRoute || disabledMap[t.ID],
+		})
+	}
+	return configs
 }

@@ -41,11 +41,12 @@ type RegisterResponse struct {
 
 // TargetConfig represents an ICMP ping target assigned to the agent
 type TargetConfig struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Host        string `json:"host"`
-	PacketCount int    `json:"packet_count"` // e.g. 10 or 20
-	IntervalSec int    `json:"interval_sec"` // e.g. 60
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Host         string `json:"host"`
+	PacketCount  int    `json:"packet_count"` // e.g. 10 or 20
+	IntervalSec  int    `json:"interval_sec"` // e.g. 60
+	DisableRoute bool   `json:"disable_route,omitempty"`
 }
 
 // TargetSyncPayload is sent from Host to Agent
