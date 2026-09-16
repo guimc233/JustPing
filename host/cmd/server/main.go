@@ -22,6 +22,7 @@ func main() {
 	}
 
 	db.StartRetentionCleaner(12 * time.Hour)
+	api.AutoBackfillHistoricalTraceroutes()
 
 	ginMode := os.Getenv("GIN_MODE")
 	if ginMode == "" {

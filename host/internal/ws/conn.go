@@ -248,6 +248,7 @@ func (ac *AgentConn) persistTracerouteReport(report protocol.TracerouteReportPay
 		}
 	}
 	routePath := ipgeo.ClassifyRoute(hopMetas, report.TargetHost, "")
+	asPath, asNodes := ipgeo.GenerateASPath(hopMetas)
 
 	rec := model.TracerouteRecord{
 		ID:         uuid.New().String(),
@@ -260,6 +261,8 @@ func (ac *AgentConn) persistTracerouteReport(report protocol.TracerouteReportPay
 		Reached:    report.Reached,
 		HopCount:   len(enrichedHops),
 		RoutePath:  routePath,
+		ASPath:     asPath,
+		ASNodes:    asNodes,
 		Hops:       enrichedHops,
 	}
 

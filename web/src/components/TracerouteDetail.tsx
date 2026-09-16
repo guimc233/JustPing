@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from './ui/table'
@@ -12,6 +12,8 @@ import {
   History,
   Shield,
   Loader2,
+  ArrowRight,
+  Workflow,
 } from 'lucide-react'
 
 export interface EnrichedHop {
@@ -29,6 +31,11 @@ export interface EnrichedHop {
   city?: string
 }
 
+export interface ASNode {
+  asn: string
+  name: string
+}
+
 export interface TracerouteRecord {
   id: string
   agent_id: string
@@ -40,6 +47,8 @@ export interface TracerouteRecord {
   reached: boolean
   hop_count: number
   route_path?: string
+  as_path?: string
+  as_nodes?: ASNode[]
   hops: EnrichedHop[]
 }
 
@@ -65,6 +74,25 @@ export const TracerouteDetail: React.FC<TracerouteDetailProps> = ({
   onSelectRecord,
 }) => {
   const [historyList, setHistoryList] = useState<any[]>([])
+
+  // Extract ordered AS Hop Path with names
+  const asNodes = useMemo(() => {
+    if (record?.as_nodes && record.as_nodes.length > 0) {
+      return record.as_nodes
+    }
+    if (!record?.hops) return []
+    const nodes: ASNode[] = []
+    let lastASN = ''
+    for (const h of record.hops) {
+      if (!h.ip || h.ip === '*' || !h.as_number || h.as_number === '*' || h.as_number === '0') continue
+      const fullASN = h.as_number.startsWith('AS') ? h.as_number : `AS${h.as_number}`
+      if (fullASN === lastASN) continue
+      const name = h.as_org || h.isp || ''
+      nodes.push({ asn: fullASN, name })
+      lastASN = fullASN
+    }
+    return nodes
+  }, [record])
 
   // Fetch recent history list for dropdown / quick jump
   useEffect(() => {
@@ -99,11 +127,6 @@ export const TracerouteDetail: React.FC<TracerouteDetailProps> = ({
                 <h2 className="text-base font-bold text-foreground">
                   NextTrace Route Telemetry: {agentName || 'Probe'} → {targetName || record?.target_host || 'Target'}
                 </h2>
-                {record?.route_path && (
-                  <Badge variant="secondary" className="font-bold text-[11px] bg-amber-500/15 text-amber-300 border-amber-500/30">
-                    {record.route_path}
-                  </Badge>
-                )}
                 {record?.reached ? (
                   <Badge variant="success" className="gap-1 text-[10px]">
                     <CheckCircle2 className="size-3" /> Reached (到达目标)
@@ -170,6 +193,49 @@ export const TracerouteDetail: React.FC<TracerouteDetailProps> = ({
                 ))}
               </select>
             </div>
+          )}
+        </div>
+
+        {/* AS Path Hop Stream: ASxxx (Name) -> ASxxx (Name) -> ASxxx (Name) */}
+        <div className="border-b border-border bg-card/90 px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 text-zinc-400 font-semibold shrink-0">
+              <Workflow className="size-3.5 text-primary" />
+              <span>AS 路由跃迁路径:</span>
+            </div>
+
+            {asNodes.length === 0 ? (
+              <span className="text-zinc-500 font-mono">
+                {record?.as_path || 'Direct / Local Transit'}
+              </span>
+            ) : (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {asNodes.map((node, i) => (
+                  <React.Fragment key={i}>
+                    <div className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] font-mono shadow-xs">
+                      <span className="font-bold text-sky-400">{node.asn}</span>
+                      {node.name && (
+                        <span className="text-zinc-300 font-sans max-w-[130px] truncate">
+                          ({node.name})
+                        </span>
+                      )}
+                    </div>
+                    {i < asNodes.length - 1 && (
+                      <ArrowRight className="size-3 text-zinc-500 shrink-0" />
+                    )}
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {record?.route_path && (
+            <Badge
+              variant="secondary"
+              className="font-bold text-[11px] bg-amber-500/15 text-amber-300 border-amber-500/30 shrink-0"
+            >
+              {record.route_path}
+            </Badge>
           )}
         </div>
 

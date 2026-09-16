@@ -3,6 +3,8 @@ package ipgeo
 import (
 	"regexp"
 	"strings"
+
+	"github.com/guimc233/JustPing/host/internal/model"
 )
 
 // HopMeta provides the IP and ASN information needed for route classification.
@@ -298,3 +300,126 @@ func isCMNETIP(ip string) bool {
 	return strings.HasPrefix(ip, "221.183.") || strings.HasPrefix(ip, "111.24.") ||
 		strings.HasPrefix(ip, "111.13.") || strings.HasPrefix(ip, "2409:8080:")
 }
+
+type ASNode = model.ASNode
+
+// GenerateASPath extracts an ordered, deduplicated sequence of Autonomous Systems with organization names.
+// e.g. "AS13335 (Cloudflare) -> AS58453 (CMI) -> AS9808 (China Mobile)"
+func GenerateASPath(hops []HopMeta) (string, []ASNode) {
+	var nodes []ASNode
+	var lastASN string
+
+	for _, h := range hops {
+		ip := strings.TrimSpace(h.IP)
+		if ip == "" || ip == "*" {
+			continue
+		}
+
+		asn := cleanASN(h.ASNumber)
+		if asn == "" {
+			asn = inferASNFromIP(ip)
+		}
+
+		// Skip private / unknown hops
+		if asn == "" || asn == "*" || asn == "0" {
+			continue
+		}
+
+		fullASN := "AS" + asn
+		if fullASN == lastASN {
+			continue
+		}
+
+		name := simplifyASName(asn, h.ASOrg, h.ISP)
+		nodes = append(nodes, ASNode{
+			ASN:  fullASN,
+			Name: name,
+		})
+		lastASN = fullASN
+	}
+
+	if len(nodes) == 0 {
+		return "", nil
+	}
+
+	parts := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		if n.Name != "" {
+			parts = append(parts, n.ASN+" ("+n.Name+")")
+		} else {
+			parts = append(parts, n.ASN)
+		}
+	}
+
+	return strings.Join(parts, " -> "), nodes
+}
+
+func simplifyASName(asn, org, isp string) string {
+	switch asn {
+	case "4809":
+		return "CN2"
+	case "4134":
+		return "Chinanet 163"
+	case "23764":
+		return "CTGNet"
+	case "9929":
+		return "China Unicom 9929"
+	case "10099":
+		return "CUG 10099"
+	case "4837":
+		return "China Unicom 4837"
+	case "58807":
+		return "CMIN2"
+	case "58453":
+		return "CMI"
+	case "9808":
+		return "China Mobile"
+	case "4538":
+		return "CERNET"
+	case "23910":
+		return "CERNET2"
+	case "23911":
+		return "CERNET2"
+	case "13335":
+		return "Cloudflare"
+	case "15169":
+		return "Google"
+	case "8075":
+		return "Microsoft"
+	case "16509":
+		return "Amazon AWS"
+	case "20940":
+		return "Akamai"
+	case "54113":
+		return "Fastly"
+	case "1299":
+		return "Arelion"
+	case "2914":
+		return "NTT"
+	case "174":
+		return "Cogent"
+	case "3257":
+		return "GTT"
+	case "6453":
+		return "Tata"
+	case "3356":
+		return "Lumen"
+	case "6939":
+		return "HE"
+	}
+
+	raw := org
+	if raw == "" {
+		raw = isp
+	}
+	raw = strings.TrimSpace(raw)
+	if len(raw) > 20 {
+		// Cut long org name
+		fields := strings.Fields(raw)
+		if len(fields) > 0 {
+			raw = fields[0]
+		}
+	}
+	return raw
+}
+

@@ -97,6 +97,12 @@ type EnrichedHop struct {
 	City        string    `json:"city,omitempty"`
 }
 
+// ASNode represents a node in the Autonomous System hop path
+type ASNode struct {
+	ASN  string `json:"asn"`
+	Name string `json:"name"`
+}
+
 // TracerouteRecord stores full traceroute path telemetry
 type TracerouteRecord struct {
 	ID         string        `gorm:"primaryKey;size:36" json:"id"`
@@ -109,5 +115,7 @@ type TracerouteRecord struct {
 	Reached    bool          `json:"reached"`
 	HopCount   int           `json:"hop_count"`
 	RoutePath  string        `gorm:"size:64" json:"route_path"`
+	ASPath     string        `gorm:"size:512" json:"as_path"`
+	ASNodes    []ASNode      `gorm:"serializer:json" json:"as_nodes"`
 	Hops       []EnrichedHop `gorm:"serializer:json" json:"hops"`
 }

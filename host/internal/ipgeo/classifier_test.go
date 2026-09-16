@@ -70,3 +70,22 @@ func TestClassifyRoute(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateASPath(t *testing.T) {
+	hops := []HopMeta{
+		{IP: "192.168.1.1"},
+		{IP: "1.1.1.1", ASNumber: "AS13335", ASOrg: "Cloudflare, Inc."},
+		{IP: "1.0.0.1", ASNumber: "13335", ASOrg: "Cloudflare, Inc."}, // duplicate consecutive AS
+		{IP: "223.120.1.1", ASNumber: "58453", ASOrg: "China Mobile International"},
+		{IP: "221.183.1.1", ASNumber: "9808", ASOrg: "China Mobile Communications"},
+	}
+
+	pathStr, nodes := GenerateASPath(hops)
+	expectedStr := "AS13335 (Cloudflare) -> AS58453 (CMI) -> AS9808 (China Mobile)"
+	if pathStr != expectedStr {
+		t.Errorf("expected '%s', got '%s'", expectedStr, pathStr)
+	}
+	if len(nodes) != 3 {
+		t.Errorf("expected 3 distinct AS nodes, got %d", len(nodes))
+	}
+}
