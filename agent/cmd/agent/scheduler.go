@@ -68,7 +68,7 @@ func (s *TargetScheduler) SyncTargets(targets []protocol.TargetConfig) {
 	// Ensure detectors exist for all active targets
 	for _, t := range targets {
 		if _, exists := s.detectors[t.ID]; !exists {
-			s.detectors[t.ID] = traceroute.NewLatencyShiftDetector(3)
+			s.detectors[t.ID] = traceroute.NewLatencyShiftDetector(30) // 30 samples * 30s = 15 minutes of sustained plateau
 		}
 	}
 
