@@ -12,6 +12,7 @@ import (
 	"github.com/guimc233/JustPing/host/internal/db"
 	"github.com/guimc233/JustPing/host/internal/ipgeo"
 	"github.com/guimc233/JustPing/host/internal/model"
+	"github.com/guimc233/JustPing/host/internal/proxy"
 	"github.com/guimc233/JustPing/shared/protocol"
 )
 
@@ -46,6 +47,29 @@ func (ac *AgentConn) SafeSend(msg []byte) error {
 		return nil
 	default:
 		return errors.New("send buffer full")
+	}
+}
+
+// SendWait blocks until the write pump accepts msg, the connection closes, or timeout elapses.
+func (ac *AgentConn) SendWait(timeout time.Duration, msg []byte) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		ac.closeMu.Lock()
+		if ac.closed {
+			ac.closeMu.Unlock()
+			return errors.New("connection closed")
+		}
+		select {
+		case ac.Send <- msg:
+			ac.closeMu.Unlock()
+			return nil
+		default:
+		}
+		ac.closeMu.Unlock()
+		if !time.Now().Before(deadline) {
+			return errors.New("send timeout")
+		}
+		time.Sleep(2 * time.Millisecond)
 	}
 }
 
@@ -148,6 +172,8 @@ func (ac *AgentConn) handleIncomingMessage(env protocol.Envelope) {
 			return
 		}
 		go ac.persistTracerouteReport(report)
+	case protocol.TypeProxyOpenResult, protocol.TypeProxyData, protocol.TypeProxyClose:
+		proxy.Default.HandleAgent(ac.AgentID, env)
 	}
 }
 

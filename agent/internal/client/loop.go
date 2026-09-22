@@ -74,6 +74,7 @@ func (c *Client) connectAndServe(ctx context.Context, backoff *time.Duration) er
 	c.mu.Unlock()
 
 	defer func() {
+		c.proxy.dropAll()
 		c.mu.Lock()
 		c.online = false
 		_ = conn.Close()
@@ -132,6 +133,9 @@ func (c *Client) connectAndServe(ctx context.Context, backoff *time.Duration) er
 		}
 		_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 
+		if c.handleProxyMessage(env) {
+			continue
+		}
 		if env.Type == protocol.TypeTargetSync {
 			raw, _ := json.Marshal(env.Payload)
 			var syncPayload protocol.TargetSyncPayload

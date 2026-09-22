@@ -9,6 +9,7 @@ import (
 
 	"github.com/guimc233/JustPing/host/internal/db"
 	"github.com/guimc233/JustPing/host/internal/model"
+	"github.com/guimc233/JustPing/host/internal/proxy"
 	"github.com/guimc233/JustPing/shared/protocol"
 )
 
@@ -63,6 +64,7 @@ func (h *Hub) Unregister(agentID string, ac *AgentConn) {
 		"is_online":    false,
 		"last_seen_at": time.Now(),
 	})
+	proxy.Default.DropAgent(agentID)
 }
 
 // Disconnect forcefully closes and removes the active connection for an agent (token rotation or deletion)
@@ -78,6 +80,7 @@ func (h *Hub) Disconnect(agentID string) {
 		"is_online":    false,
 		"last_seen_at": time.Now(),
 	})
+	proxy.Default.DropAgent(agentID)
 }
 
 // SendToAgent sends a typed envelope safely without panicking on closed channel

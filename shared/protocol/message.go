@@ -13,6 +13,10 @@ const (
 	TypeTargetSync       MessageType = "target_sync"
 	TypePingReport       MessageType = "ping_report"
 	TypeTracerouteReport MessageType = "traceroute_report"
+	TypeProxyOpen        MessageType = "proxy_open"
+	TypeProxyOpenResult  MessageType = "proxy_open_result"
+	TypeProxyData        MessageType = "proxy_data"
+	TypeProxyClose       MessageType = "proxy_close"
 	TypeError            MessageType = "error"
 )
 
@@ -103,4 +107,30 @@ type TracerouteReportPayload struct {
 	DurationMs int64           `json:"duration_ms"`
 	Reached    bool            `json:"reached"`
 	Hops       []TracerouteHop `json:"hops"`
+}
+
+// ProxyOpenPayload asks a probe to dial a TCP target for one HTTPS CONNECT tunnel.
+type ProxyOpenPayload struct {
+	TunnelID string `json:"tunnel_id"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+}
+
+// ProxyOpenResultPayload is the probe's dial result.
+type ProxyOpenResultPayload struct {
+	TunnelID string `json:"tunnel_id"`
+	OK       bool   `json:"ok"`
+	Error    string `json:"error,omitempty"`
+}
+
+// ProxyDataPayload carries one chunk of tunnel bytes, base64-encoded.
+type ProxyDataPayload struct {
+	TunnelID string `json:"tunnel_id"`
+	Data     string `json:"data"`
+}
+
+// ProxyClosePayload closes a tunnel from either side.
+type ProxyClosePayload struct {
+	TunnelID string `json:"tunnel_id"`
+	Reason   string `json:"reason,omitempty"`
 }

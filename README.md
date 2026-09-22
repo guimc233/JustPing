@@ -114,6 +114,12 @@ JustPing/
 
 ---
 
+## Temporary HTTPS exit
+
+A signed-in admin can issue a username and password for one online probe. The credential lasts 10 minutes and is shown once. Set `https_proxy` to `http://user:pass@<host>:<port>` on the JustPing listen address. HTTPS clients send HTTP CONNECT, and that probe dials the target. Revoke the credential from the probe row, or wait for it to expire. Probes must run a build that understands proxy tunnel messages.
+
+---
+
 ## 📄 License
 
 This project is open-sourced under the [MIT License](LICENSE).
