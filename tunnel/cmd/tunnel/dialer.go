@@ -74,6 +74,9 @@ type Dialer struct {
 	mu      sync.Mutex
 	tunnels map[int64]*Tunnel
 	nextID  int64
+
+	clientOnce sync.Once
+	client     *http.Client
 }
 
 // NewDialer builds a dialer for serverURL (the JustPing Host URL) using the

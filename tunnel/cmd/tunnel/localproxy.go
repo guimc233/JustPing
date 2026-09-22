@@ -44,17 +44,30 @@ type dialResult struct {
 	err  error
 }
 
-// HTTPClient returns a client whose traffic exits through the probe.
-func (d *Dialer) HTTPClient(timeout time.Duration) *http.Client {
-	transport := &http.Transport{
-		DialContext:           d.DialContext,
-		MaxIdleConns:          16,
-		IdleConnTimeout:       30 * time.Second,
-		TLSHandshakeTimeout:   15 * time.Second,
-		ResponseHeaderTimeout: timeout,
-		DisableCompression:    false,
-	}
-	return &http.Client{Transport: transport, Timeout: timeout}
+// clientTimeout bounds one request end to end.
+const clientTimeout = 60 * time.Second
+
+// HTTPClient returns the shared client whose traffic exits through the probe.
+//
+// One client is reused for the whole run so idle connections are pooled. That
+// matters because every connection opens a tunnel on the Host, and the Host caps
+// concurrent tunnels per credential: a fresh transport per request would leak an
+// idle tunnel every time and eventually hit that cap.
+func (d *Dialer) HTTPClient() *http.Client {
+	d.clientOnce.Do(func() {
+		d.client = &http.Client{
+			Transport: &http.Transport{
+				DialContext:           d.DialContext,
+				MaxIdleConns:          8,
+				MaxIdleConnsPerHost:   2,
+				IdleConnTimeout:       30 * time.Second,
+				TLSHandshakeTimeout:   15 * time.Second,
+				ResponseHeaderTimeout: clientTimeout,
+			},
+			Timeout: clientTimeout,
+		}
+	})
+	return d.client
 }
 
 // LocalProxy is the optional 127.0.0.1 listener that makes the probe usable from
@@ -206,7 +219,7 @@ func (p *LocalProxy) handleForward(w http.ResponseWriter, r *http.Request) {
 	outReq.Header.Del("Proxy-Authorization")
 	outReq.Header.Del("Proxy-Connection")
 
-	client := p.dialer.HTTPClient(60 * time.Second)
+	client := p.dialer.HTTPClient()
 	resp, err := client.Do(outReq)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)

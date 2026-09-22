@@ -92,7 +92,9 @@ func newModel(server, user string, d *Dialer, p *LocalProxy) model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(tea.EnterAltScreen, tick())
+	// The alt screen is entered by tea.WithAltScreen; only the refresh ticker is
+	// needed here.
+	return tick()
 }
 
 func tick() tea.Cmd {
@@ -165,12 +167,15 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case tea.KeyEnter:
 			value := strings.TrimSpace(m.input)
+			// Capture the mode before clearing it: submit dispatches on which
+			// prompt was active, and clearing it first made every action a no-op.
+			mode := m.mode
 			m.mode = modeNone
 			m.input = ""
 			if value == "" {
 				return m, nil
 			}
-			return m.submit(value)
+			return m.submit(mode, value)
 		case tea.KeyBackspace:
 			if len(m.input) > 0 {
 				r := []rune(m.input)
@@ -200,6 +205,10 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input = "https://"
 	case "l":
 		return m.toggleLocalProxy()
+	case "x":
+		n := len(m.dialer.Tunnels())
+		m.dialer.CloseAll()
+		m.log("closed %d tunnel(s)", n)
 	case "c":
 		m.logs = []string{}
 		m.reqs = []requestResultMsg{}
@@ -207,14 +216,16 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) submit(value string) (tea.Model, tea.Cmd) {
-	if m.mode == modeListen {
+func (m model) submit(mode inputMode, value string) (tea.Model, tea.Cmd) {
+	switch mode {
+	case modeListen:
+		m.log("starting local proxy on %s", value)
 		return m, startListen(m.proxy, value)
-	}
-	switch m.mode {
 	case modeTarget:
+		m.log("opening tunnel to %s", value)
 		return m, openTunnel(m.dialer, value)
 	case modeRequest:
+		m.log("requesting %s", value)
 		return m, doRequest(m.dialer, value)
 	}
 	return m, nil
@@ -269,7 +280,7 @@ func doRequest(d *Dialer, rawURL string) tea.Cmd {
 		req.Header.Set("User-Agent", "justping-tunnel/"+Version)
 
 		start := time.Now()
-		resp, err := d.HTTPClient(60 * time.Second).Do(req)
+		resp, err := d.HTTPClient().Do(req)
 		elapsed := time.Since(start)
 		if err != nil {
 			return requestResultMsg{url: rawURL, err: err, duration: elapsed}
@@ -321,7 +332,7 @@ func (m model) View() string {
 		b.WriteString(warnStyle.Render("> "+m.prompt+": ") + m.input + "▏\n")
 		b.WriteString(helpStyle.Render("enter confirm · esc cancel") + "\n")
 	} else {
-		b.WriteString(helpStyle.Render("[t] open tunnel  [r] request  [l] toggle local proxy  [c] clear  [q] quit") + "\n")
+		b.WriteString(helpStyle.Render("[t] open tunnel  [r] request  [l] local proxy  [x] close tunnels  [c] clear  [q] quit") + "\n")
 	}
 
 	return b.String()

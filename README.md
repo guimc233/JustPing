@@ -134,7 +134,7 @@ chmod +x justping-tunnel
 ./justping-tunnel --server https://ping.example.com --credential <user>:<password>
 ```
 
-The client is an interactive console: open tunnels and watch their byte counters, issue HTTP requests straight through the probe, and toggle a loopback-only HTTP proxy (`l`) when you want `curl` or a browser to use it. Press `t` to open a tunnel, `r` to run a request, and `q` to quit. For scripting, skip the UI with `--listen 127.0.0.1:8899`, which starts the local proxy immediately:
+The client is an interactive console: open tunnels and watch their byte counters, issue HTTP requests straight through the probe, and toggle a loopback-only HTTP proxy (`l`) when you want `curl` or a browser to use it. Press `t` to open a tunnel, `r` to run a request, `l` to toggle the local proxy, `x` to release every tunnel, `c` to clear the panes, and `q` to quit. For scripting, skip the UI with `--listen 127.0.0.1:8899`, which starts the local proxy immediately:
 
 ```bash
 ./justping-tunnel --server https://ping.example.com --credential <user>:<password> --listen 127.0.0.1:8899
