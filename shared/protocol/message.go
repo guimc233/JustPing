@@ -19,6 +19,7 @@ const (
 	TypeProxyClose       MessageType = "proxy_close"
 	TypeUpdateCheck      MessageType = "update_check"
 	TypeUpdateResult     MessageType = "update_result"
+	TypeSoftExit         MessageType = "soft_exit"
 	TypeError            MessageType = "error"
 )
 
@@ -136,6 +137,13 @@ type ProxyClosePayload struct {
 	TunnelID string `json:"tunnel_id"`
 	Reason   string `json:"reason,omitempty"`
 }
+
+// SoftExitPayload asks a probe to exit deliberately so its service supervisor
+// restarts it, which re-runs the start-up auto-updater. It exists so the Host
+// can force a probe that predates the update_check message to update without
+// crashing it. It carries no fields and is safe to ignore: a probe that does
+// not implement it simply keeps running.
+type SoftExitPayload struct{}
 
 // UpdateResultPayload is sent from Agent to Host after a Host-triggered
 // update check. Updating is true when the probe replaced its own binary

@@ -16,6 +16,7 @@ RUN npm run build
 FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS host-builder
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=dev
 WORKDIR /app
 
 RUN apk add --no-cache git ca-certificates
@@ -26,7 +27,9 @@ COPY --from=web-builder /app/web/dist/ ./host/internal/ui/dist/
 
 WORKDIR /app/host
 ENV GOWORK=off
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-s -w" -o /app/bin/justping-host ./cmd/server
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
+    -ldflags="-s -w -X github.com/guimc233/JustPing/host/internal/buildinfo.Version=$VERSION" \
+    -o /app/bin/justping-host ./cmd/server
 
 # ==========================================
 # Stage 3: Target Runtime Container

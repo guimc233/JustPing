@@ -72,7 +72,7 @@ jobs:
         run: |
           mkdir -p ../dist
           OUTPUT="../dist/justping-host-${{ matrix.name }}${{ matrix.ext }}"
-          go build -ldflags="-s -w" -o "$OUTPUT" ./cmd/server
+          go build -ldflags="-s -w -X github.com/guimc233/JustPing/host/internal/buildinfo.Version=${{ github.ref_name }}" -o "$OUTPUT" ./cmd/server
 
       - name: Upload Host Artifact
         uses: actions/upload-artifact@v4
@@ -240,6 +240,8 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            VERSION=${{ github.ref_name }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 

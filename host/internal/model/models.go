@@ -73,6 +73,12 @@ type Agent struct {
 	// Version is too old to implement. It is derived at read time from the
 	// feature registry and never persisted.
 	UnsupportedFeatures []string `gorm:"-" json:"unsupported_features"`
+
+	// ForceRestartMode reports how the Host can force this probe to restart so
+	// its start-up auto-updater picks up a newer release: "soft_exit",
+	// "legacy_crash", "native" (use the update check) or "unsupported".
+	// Derived at read time.
+	ForceRestartMode string `gorm:"-" json:"force_restart_mode"`
 }
 
 // AgentUpdateStatus describes the outcome of the most recent Host-triggered

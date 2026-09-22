@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/guimc233/JustPing/host/internal/buildinfo"
 )
 
 //go:embed dist/*
@@ -40,7 +41,7 @@ func SetupStaticServ(r *gin.Engine) {
 		r.GET("/", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
 				"service": "JustPing Host API",
-				"version": "1.0.11",
+				"version": buildinfo.Version,
 				"status":  "running",
 				"hint":    "Frontend assets not found.",
 			})

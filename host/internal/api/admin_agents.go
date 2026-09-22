@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -28,6 +29,7 @@ func adminListAgents(c *gin.Context) {
 	statuses := ws.DefaultHub.UpdateStatuses()
 	for i := range agents {
 		agents[i].UnsupportedFeatures = feature.Unsupported(agents[i].Version)
+		agents[i].ForceRestartMode = string(feature.ForceRestartModeFor(agents[i].Version, agents[i].Arch))
 		if status, ok := statuses[agents[i].ID]; ok {
 			copied := status
 			agents[i].UpdateStatus = &copied
@@ -158,7 +160,8 @@ func adminDeleteAgent(c *gin.Context) {
 }
 
 // adminAgentUpdateCheck asks a single probe to check for the latest release and
-// install it immediately. The probe reports the outcome asynchronously.
+// install it immediately through the native update_check message. The probe
+// reports the outcome asynchronously.
 func adminAgentUpdateCheck(c *gin.Context) {
 	id := c.Param("id")
 	var agent model.Agent
@@ -168,14 +171,65 @@ func adminAgentUpdateCheck(c *gin.Context) {
 	}
 
 	if err := ws.DefaultHub.RequestUpdateCheck(agent.ID); err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "Agent is offline"})
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"triggered": 1})
 }
 
-// adminAllAgentsUpdateCheck asks every online probe to check for updates.
+// adminAllAgentsUpdateCheck asks every probe that supports the native message to
+// check for updates.
 func adminAllAgentsUpdateCheck(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"triggered": ws.DefaultHub.BroadcastUpdateCheck()})
+	result := ws.DefaultHub.BroadcastUpdateCheck()
+	c.JSON(http.StatusOK, gin.H{
+		"triggered":   result.Triggered,
+		"skipped":     result.Skipped,
+		"unreachable": result.Unreachable,
+	})
+}
+
+// adminAgentCrashUpdate forces a probe that cannot be driven through
+// update_check to restart so its start-up auto-updater picks up the latest
+// release.
+//
+// Probes that support soft_exit are asked to exit cleanly first; only if that
+// times out is the probe crashed. This handler blocks for up to
+// ws.SoftExitEscalationTimeout so the response can report which route was used.
+func adminAgentCrashUpdate(c *gin.Context) {
+	id := c.Param("id")
+	var agent model.Agent
+	if err := db.DB.First(&agent, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Agent not found"})
+		return
+	}
+
+	mode, err := ws.DefaultHub.RequestRestart(agent.ID)
+	switch {
+	case errors.Is(err, ws.ErrAgentOffline):
+		c.JSON(http.StatusConflict, gin.H{"error": ws.ErrAgentOffline.Error()})
+		return
+	case errors.Is(err, ws.ErrRestartUnsupported):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "mode": string(mode)})
+		return
+	case errors.Is(err, ws.ErrSoftExitEscalated):
+		c.JSON(http.StatusOK, gin.H{
+			"triggered": 1,
+			"mode":      string(mode),
+			"escalated": true,
+			"message":   err.Error(),
+		})
+		return
+	case err != nil:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"triggered": 1, "mode": string(mode)})
+}
+
+// adminAllAgentsCrashUpdate force-restarts every probe that cannot be driven
+// through update_check, preferring soft_exit and escalating to a crash.
+func adminAllAgentsCrashUpdate(c *gin.Context) {
+	c.JSON(http.StatusOK, ws.DefaultHub.BroadcastRestart())
 }

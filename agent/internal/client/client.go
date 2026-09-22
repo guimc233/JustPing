@@ -26,12 +26,13 @@ type Client struct {
 	online  bool
 	agentID string
 
-	reportQueue []protocol.PingReportPayload
-	queueMu     sync.Mutex
-	stopCh      chan struct{}
-	syncHook    func([]protocol.TargetConfig)
-	updateHook  func()
-	proxy       proxyManager
+	reportQueue  []protocol.PingReportPayload
+	queueMu      sync.Mutex
+	stopCh       chan struct{}
+	syncHook     func([]protocol.TargetConfig)
+	updateHook   func()
+	softExitHook func()
+	proxy        proxyManager
 }
 
 func NewClient(cfg Config, p *pinger.Pinger, syncHook func([]protocol.TargetConfig)) *Client {
@@ -58,6 +59,21 @@ func (c *Client) updateHandler() func() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.updateHook
+}
+
+// SetSoftExitHook registers the callback invoked when the Host asks this probe to
+// exit so the service supervisor restarts it. It must be called before Start to
+// avoid racing the read loop.
+func (c *Client) SetSoftExitHook(hook func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.softExitHook = hook
+}
+
+func (c *Client) softExitHandler() func() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.softExitHook
 }
 
 // SendUpdateResult reports the outcome of a Host-triggered update check.

@@ -20,13 +20,26 @@ import (
 type AgentConn struct {
 	AgentID  string
 	RemoteIP string
+	Version  string
+	Arch     string
 	Conn     *websocket.Conn
 	Send     chan []byte
 	Hub      *Hub
 	closeMu  sync.Mutex
 	closed   bool
+
+	// gone is closed once this specific connection is torn down, whichever path
+	// does it. Callers waiting on a probe to act on a request (for example a
+	// soft exit) watch this instead of polling the hub, so a probe that
+	// reconnects immediately after restarting cannot mask the disconnect.
+	gone     chan struct{}
+	goneOnce sync.Once
 }
 
+// Gone returns a channel closed when this connection is torn down.
+func (ac *AgentConn) Gone() <-chan struct{} { return ac.gone }
+
+// Close tears down the connection and signals Gone.
 func (ac *AgentConn) Close() {
 	ac.closeMu.Lock()
 	defer ac.closeMu.Unlock()
@@ -35,6 +48,7 @@ func (ac *AgentConn) Close() {
 		close(ac.Send)
 		_ = ac.Conn.Close()
 	}
+	ac.goneOnce.Do(func() { close(ac.gone) })
 }
 
 func (ac *AgentConn) SafeSend(msg []byte) error {

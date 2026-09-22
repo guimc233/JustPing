@@ -42,6 +42,7 @@ func (h *Hub) HandleWebSocket(c *gin.Context) {
 		Send:     make(chan []byte, 256),
 		Hub:      h,
 		RemoteIP: remoteIP,
+		gone:     make(chan struct{}),
 	}
 
 	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
@@ -86,6 +87,8 @@ func (h *Hub) HandleWebSocket(c *gin.Context) {
 	_ = db.DB.Save(&agent)
 
 	ac.AgentID = agent.ID
+	ac.Version = regReq.Version
+	ac.Arch = regReq.Arch
 	h.Register(agent.ID, ac)
 
 	_ = ac.QueueEnvelope(protocol.TypeRegisterResponse, protocol.RegisterResponse{

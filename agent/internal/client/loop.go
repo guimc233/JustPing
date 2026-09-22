@@ -153,6 +153,13 @@ func (c *Client) connectAndServe(ctx context.Context, backoff *time.Duration) er
 				go hook()
 			}
 		}
+		if env.Type == protocol.TypeSoftExit {
+			log.Printf("[Agent WS] Host requested a soft restart; exiting for the service supervisor to restart us\n")
+			if hook := c.softExitHandler(); hook != nil {
+				// Run off the read loop: the hook shuts the agent down.
+				go hook()
+			}
+		}
 	}
 }
 

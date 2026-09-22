@@ -24,7 +24,7 @@ var (
 	// Version is overridden at build time with -X main.Version=<release tag>.
 	// Keep the fallback in step with the release so locally built probes report
 	// a version that matches the capabilities they actually have.
-	Version   = "1.2.0"
+	Version   = "1.2.1"
 	GitCommit = "unknown"
 )
 
@@ -174,6 +174,21 @@ func main() {
 		return isUpdating
 	}
 
+	// softExit means the Host asked us to exit so the service supervisor restarts
+	// us, which re-runs the start-up auto-updater. Exiting non-zero keeps
+	// supervisors that only restart on failure working too.
+	softExit := false
+	markSoftExit := func() {
+		updateMu.Lock()
+		softExit = true
+		updateMu.Unlock()
+	}
+	softExitNow := func() bool {
+		updateMu.Lock()
+		defer updateMu.Unlock()
+		return softExit
+	}
+
 	c := client.NewClient(
 		client.Config{ServerURL: cfg.Server, Token: cfg.Token, Version: Version},
 		p,
@@ -214,6 +229,14 @@ func main() {
 		cancel()
 	})
 
+	// The Host uses this to force a restart so the start-up auto-updater re-runs:
+	// it replaces crashing us, and it is also the clean way to force a restart
+	// after an operator asks for one.
+	c.SetSoftExitHook(func() {
+		markSoftExit()
+		cancel()
+	})
+
 	sched = NewTargetScheduler(ctx, p, c)
 	c.Start(ctx)
 
@@ -240,6 +263,8 @@ func main() {
 	case <-ctx.Done():
 		if updatingNow() {
 			log.Println("Restarting JustPing Agent following update...")
+		} else if softExitNow() {
+			log.Println("Soft exit requested by Host; restarting...")
 		}
 	}
 
@@ -255,6 +280,13 @@ func main() {
 			_ = syscall.Exec(execPath, os.Args, os.Environ())
 		}
 		os.Exit(0)
+	}
+
+	if softExitNow() {
+		// Exit non-zero on purpose: the service supervisor restarts the agent, and
+		// its start-up auto-updater then installs any pending release.
+		log.Println("Exiting for the service supervisor to restart the agent.")
+		os.Exit(1)
 	}
 
 	log.Println("Agent stopped.")

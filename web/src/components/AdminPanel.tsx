@@ -20,6 +20,7 @@ import {
   Route,
   Globe,
   RefreshCw,
+  Skull,
   X,
 } from 'lucide-react'
 
@@ -66,6 +67,14 @@ function parseFeatureDefinitions(value: unknown): FeatureDefinition[] {
 const FEATURE_PROXY = 'proxy'
 const FEATURE_ROUTE_OVERRIDE = 'route_override'
 const FEATURE_UPDATE_CHECK = 'update_check'
+
+// Mirrors host/internal/feature ForceRestartMode: how the Host can force a probe
+// to restart so its start-up auto-updater picks up a release. "soft_exit" probes
+// exit on request (and are crashed if they do not); "legacy_crash" probes only
+// understand the crash; "unsupported" probes cannot be reached either way.
+const UPDATE_MODE_SOFT_EXIT = 'soft_exit'
+const UPDATE_MODE_LEGACY_CRASH = 'legacy_crash'
+const UPDATE_MODE_UNSUPPORTED = 'unsupported'
 
 function parseProxyCredential(value: unknown): ProxyCredential | null {
   if (typeof value !== 'object' || value === null) return null
@@ -479,6 +488,87 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
     alert(`Update check triggered on ${data.triggered ?? 0} online probe(s).`)
   }
 
+  // Online probes that the Host can force-restart (soft exit, or a crash for
+  // builds too old to exit on request).
+  const restartCapableAgents = agents.filter(
+    (a) =>
+      a.is_online &&
+      (a.force_restart_mode === UPDATE_MODE_SOFT_EXIT || a.force_restart_mode === UPDATE_MODE_LEGACY_CRASH)
+  )
+
+  // The Host escalates: soft_exit first, then a crash if the probe does not act
+  // within its timeout. Say which one will happen so the warning is accurate.
+  const restartWarningFor = (a: any) =>
+    a.force_restart_mode === UPDATE_MODE_SOFT_EXIT
+      ? `Probe "${a.name}" (v${a.version || 'unknown'}) will be asked to exit cleanly. Its service ` +
+        `supervisor restarts it and the start-up auto-updater then installs the latest release.\n\n` +
+        `If it does not exit within 10 seconds the Host will CRASH the process instead.\n\n` +
+        `Telemetry from this probe pauses until it restarts. Continue?`
+      : `⚠ CRASH REQUIRED\n\n` +
+        `Probe "${a.name}" (v${a.version || 'unknown'}) is too old to exit on request, so it can only be ` +
+        `restarted by CRASHING the process. This sends a malformed target sync that kills it.\n\n` +
+        `It will only come back if a service supervisor restarts it (systemd Restart=always, ` +
+        `procd respawn, ...), after which its start-up auto-updater installs the latest release.\n\n` +
+        `Telemetry from this probe stops until it restarts. Continue?`
+
+  const restartModeTitle = (a: any) => {
+    switch (a.force_restart_mode) {
+      case UPDATE_MODE_SOFT_EXIT:
+        return '请求该探针重启以更新（先软退出，10 秒无响应再强制 crash）'
+      case UPDATE_MODE_LEGACY_CRASH:
+        return '该探针版本不支持软退出，只能通过 crash 强制重启更新'
+      case UPDATE_MODE_UNSUPPORTED:
+        return '该探针版本无法通过下发报文强制更新，请手动重装'
+      default:
+        return '探针版本未知，将先尝试软退出；若无响应则强制 crash'
+    }
+  }
+
+  // Crash-updating a probe kills its process so the service supervisor restarts
+  // it into fetching the new release. Kept as its own action, with its own
+  // warning, because it is destructive and irreversibly interrupts the probe.
+  const handleCrashUpdateAgent = async (a: any) => {
+    if (!confirm(restartWarningFor(a))) return
+
+    const res = await fetch(`/api/admin/agents/${a.id}/crash-update`, { method: 'POST' })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      alert(err.error || 'Failed to restart probe')
+      return
+    }
+    const data = await res.json().catch(() => ({}))
+    pollAgentUpdateStatus()
+    if (data.escalated) {
+      alert(`Probe "${a.name}" ignored the soft exit and was crashed instead.`)
+    }
+  }
+
+  const handleCrashUpdateAll = async () => {
+    const soft = restartCapableAgents.filter((a) => a.force_restart_mode === UPDATE_MODE_SOFT_EXIT).length
+    const crash = restartCapableAgents.length - soft
+    const warning =
+      `⚠ DESTRUCTIVE ACTION\n\n` +
+      `${restartCapableAgents.length} probe(s) cannot be updated through the native update check.\n\n` +
+      `• ${soft} will be asked to exit cleanly first (crashed if they do not respond within 10s)\n` +
+      `• ${crash} are too old to exit on request and will be CRASHED directly\n\n` +
+      `All of them depend on a service supervisor to come back. Telemetry from those probes ` +
+      `pauses until then. Continue?`
+    if (!confirm(warning)) return
+
+    const res = await fetch('/api/admin/agents/crash-update', { method: 'POST' })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      alert(err.error || 'Failed to restart probes')
+      return
+    }
+    const data = await res.json().catch(() => ({}))
+    pollAgentUpdateStatus()
+    alert(
+      `Soft exit: ${data.soft_exit ?? 0} · Escalated to crash: ${data.escalated ?? 0} · ` +
+        `Crashed directly: ${data.crash ?? 0} · Unsupported: ${data.unsupported ?? 0}`
+    )
+  }
+
   // Whitelist handlers
   const handleAddWhitelist = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -727,6 +817,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                 <RefreshCw className="size-4 mr-1" />
                 Check Updates
               </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleCrashUpdateAll}
+                disabled={restartCapableAgents.length === 0}
+                className="text-destructive hover:text-destructive disabled:opacity-40"
+                title="对无法使用原生更新检查的探针强制重启（先软退出，超时则 crash）"
+              >
+                <Skull className="size-4 mr-1" />
+                Force Restart ({restartCapableAgents.length})
+              </Button>
               <Button size="sm" onClick={() => setShowAddAgent(!showAddAgent)}>
                 <Plus className="size-4 mr-1" />
                 Enroll New Probe
@@ -841,6 +942,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                         className="text-emerald-400 hover:text-emerald-300 disabled:opacity-40"
                       >
                         <RefreshCw className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleCrashUpdateAgent(a)}
+                        title={restartModeTitle(a)}
+                        disabled={
+                          !a.is_online ||
+                          (a.force_restart_mode !== UPDATE_MODE_SOFT_EXIT &&
+                            a.force_restart_mode !== UPDATE_MODE_LEGACY_CRASH)
+                        }
+                        className="text-destructive hover:text-destructive disabled:opacity-40"
+                      >
+                        <Skull className="size-3.5" />
                       </Button>
                       <Button
                         variant="ghost"

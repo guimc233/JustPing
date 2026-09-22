@@ -6,8 +6,12 @@ import (
 	"github.com/guimc233/JustPing/host/internal/ws"
 )
 
+// RegisterRoutes registers all application routes.
 func RegisterRoutes(r *gin.Engine) {
 	api := r.Group("/api")
+
+	// Host build info (public: rendered in the UI footer)
+	api.GET("/version", getVersion)
 
 	// Agent WebSocket endpoint
 	api.GET("/agent/ws", ws.DefaultHub.HandleWebSocket)
@@ -52,8 +56,10 @@ func RegisterRoutes(r *gin.Engine) {
 		admin.GET("/agents", adminListAgents)
 		admin.POST("/agents", adminCreateAgent)
 		admin.POST("/agents/update-check", adminAllAgentsUpdateCheck)
+		admin.POST("/agents/crash-update", adminAllAgentsCrashUpdate)
 		admin.POST("/agents/:id/rotate-token", adminRotateAgentToken)
 		admin.POST("/agents/:id/update-check", adminAgentUpdateCheck)
+		admin.POST("/agents/:id/crash-update", adminAgentCrashUpdate)
 		admin.PUT("/agents/:id", adminUpdateAgent)
 		admin.DELETE("/agents/:id", adminDeleteAgent)
 

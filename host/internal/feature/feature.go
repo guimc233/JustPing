@@ -18,6 +18,9 @@ const (
 	Proxy Key = "proxy"
 	// UpdateCheck lets the Host force an immediate self-update check on one probe.
 	UpdateCheck Key = "update_check"
+	// SoftExit lets the Host ask a probe to exit so its service supervisor
+	// restarts it, which re-runs the start-up auto-updater.
+	SoftExit Key = "soft_exit"
 )
 
 // Definition describes a capability and the first probe release supporting it.
@@ -35,6 +38,7 @@ var registry = []Definition{
 	{Key: RouteOverride, Name: "Per-probe route override", MinVersion: "1.0.10"},
 	{Key: Proxy, Name: "HTTPS proxy tunnel", MinVersion: "1.0.12"},
 	{Key: UpdateCheck, Name: "Manual update check", MinVersion: "1.0.13"},
+	{Key: SoftExit, Name: "Graceful restart for forced updates", MinVersion: "1.2.1"},
 }
 
 // All returns every tracked capability in registry order.

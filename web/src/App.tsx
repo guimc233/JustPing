@@ -11,6 +11,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard')
   const [loading, setLoading] = useState(true)
   const [loginError, setLoginError] = useState<string | null>(null)
+  const [hostVersion, setHostVersion] = useState<string>('')
 
   // Check URL parameters for OAuth errors
   useEffect(() => {
@@ -61,6 +62,14 @@ export function App() {
 
   useEffect(() => {
     checkStatus()
+    fetch('/api/version')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && typeof data.version === 'string') setHostVersion(data.version)
+      })
+      .catch(() => {
+        // Footer version is informational; ignore failures.
+      })
   }, [])
 
   const handleLogout = async () => {
@@ -143,10 +152,18 @@ export function App() {
       </main>
 
       <footer className="border-t border-border/40 py-6 text-center text-xs text-muted-foreground">
-        <div className="flex items-center justify-center gap-1">
+        <div className="flex flex-wrap items-center justify-center gap-1">
           <span>Powered by</span>
           <span className="font-semibold text-foreground">JustPing</span>
-          <span>• Distributed Latency & Quality Observability</span>
+          <span>• Distributed Latency &amp; Quality Observability</span>
+          {hostVersion && (
+            <>
+              <span>•</span>
+              <span className="font-mono" title="Host build version">
+                host v{hostVersion}
+              </span>
+            </>
+          )}
         </div>
       </footer>
     </div>
