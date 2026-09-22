@@ -118,6 +118,31 @@ JustPing/
 
 A signed-in admin can issue a username and password for one online probe. The credential lasts 10 minutes and is shown once. Set `https_proxy` to `http://user:pass@<host>:<port>` on the JustPing listen address. HTTPS clients send HTTP CONNECT, and that probe dials the target. Revoke the credential from the probe row, or wait for it to expire. Probes must run a build that understands proxy tunnel messages.
 
+### Behind a reverse proxy
+
+A reverse proxy in front of the Host usually refuses the CONNECT method before JustPing ever sees it: nginx answers `405 Not Allowed` unless it was built with the third-party `proxy_connect` module. Reverse proxies do forward WebSocket upgrades, so the same tunnels are also served on `/api/proxy/tunnel` over WebSocket — same port, same TLS listener, no extra port and no reverse-proxy configuration.
+
+The `justping-tunnel` client uses that endpoint. The proxy dialog in the admin panel prints a download-then-run command for it:
+
+```bash
+# 1. download the tunnel client (pick the asset for your platform)
+curl -fsSL -o justping-tunnel \
+  https://github.com/guimc233/JustPing/releases/latest/download/justping-tunnel-linux-amd64
+chmod +x justping-tunnel
+
+# 2. connect
+./justping-tunnel --server https://ping.example.com --credential <user>:<password>
+```
+
+The client is an interactive console: open tunnels and watch their byte counters, issue HTTP requests straight through the probe, and toggle a loopback-only HTTP proxy (`l`) when you want `curl` or a browser to use it. Press `t` to open a tunnel, `r` to run a request, and `q` to quit. For scripting, skip the UI with `--listen 127.0.0.1:8899`, which starts the local proxy immediately:
+
+```bash
+./justping-tunnel --server https://ping.example.com --credential <user>:<password> --listen 127.0.0.1:8899
+export https_proxy=http://127.0.0.1:8899
+```
+
+The listen address is restricted to loopback: this listener is unauthenticated, and the probe credential is short-lived and meant for the operator only.
+
 ---
 
 ## 📄 License

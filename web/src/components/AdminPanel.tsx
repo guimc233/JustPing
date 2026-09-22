@@ -43,6 +43,52 @@ interface ProxyCredential {
   ttl_sec: number
   password?: string
   proxy_url?: string
+  tunnel_download_base?: string
+  server_url?: string
+}
+
+// Tunnel client platforms, matching the release assets the CI builds.
+const TUNNEL_PLATFORMS = [
+  { id: 'linux-amd64', label: 'Linux x86_64', binary: 'justping-tunnel-linux-amd64', ext: '', windows: false },
+  { id: 'linux-arm64', label: 'Linux arm64', binary: 'justping-tunnel-linux-arm64', ext: '', windows: false },
+  { id: 'windows-amd64', label: 'Windows x86_64', binary: 'justping-tunnel-windows-amd64', ext: '.exe', windows: true },
+  { id: 'windows-arm64', label: 'Windows arm64', binary: 'justping-tunnel-windows-arm64', ext: '.exe', windows: true },
+] as const
+
+function detectTunnelPlatform(): string {
+  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent.toLowerCase()
+  if (ua.includes('windows')) return 'windows-amd64'
+  return 'linux-amd64'
+}
+
+// Builds the download-then-run snippet. The client is fetched as a plain binary
+// rather than piped into a shell, so the operator can inspect it first.
+function tunnelCommand(cred: ProxyCredential, platformId: string): string {
+  const platform = TUNNEL_PLATFORMS.find((p) => p.id === platformId) || TUNNEL_PLATFORMS[0]
+  const base = cred.tunnel_download_base
+  const server = cred.server_url || ''
+  if (!base) return ''
+
+  const url = `${base}/${platform.binary}${platform.ext}`
+  const credential = `${cred.username}:${cred.password ?? ''}`
+
+  if (platform.windows) {
+    return [
+      `# 1. download the tunnel client`,
+      `curl.exe -fsSL -o justping-tunnel.exe ${url}`,
+      ``,
+      `# 2. connect (credential expires in 10 minutes)`,
+      `.\\justping-tunnel.exe --server ${server} --credential ${credential}`,
+    ].join('\n')
+  }
+  return [
+    `# 1. download the tunnel client`,
+    `curl -fsSL -o justping-tunnel ${url}`,
+    `chmod +x justping-tunnel`,
+    ``,
+    `# 2. connect (credential expires in 10 minutes)`,
+    `./justping-tunnel --server ${server} --credential ${credential}`,
+  ].join('\n')
 }
 
 // Mirrors host/internal/feature/feature.go: each capability plus the first probe
@@ -110,6 +156,10 @@ function parseProxyCredential(value: unknown): ProxyCredential | null {
   }
   if ('password' in value && typeof value.password === 'string') credential.password = value.password
   if ('proxy_url' in value && typeof value.proxy_url === 'string') credential.proxy_url = value.proxy_url
+  if ('tunnel_download_base' in value && typeof value.tunnel_download_base === 'string') {
+    credential.tunnel_download_base = value.tunnel_download_base
+  }
+  if ('server_url' in value && typeof value.server_url === 'string') credential.server_url = value.server_url
   return credential
 }
 
@@ -161,6 +211,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   const [proxyError, setProxyError] = useState('')
   const [proxyBusy, setProxyBusy] = useState(false)
   const [copiedProxy, setCopiedProxy] = useState('')
+  const [tunnelPlatform, setTunnelPlatform] = useState<string>(detectTunnelPlatform)
   const proxyReqGen = useRef(0)
   const proxyAbort = useRef<AbortController | null>(null)
   const agentStatusPoll = useRef<number | null>(null)
@@ -1314,6 +1365,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
             <p className="text-xs text-muted-foreground">
               登录管理端后签发账号密码，有效期 10 分钟。把地址设为 <code>https_proxy</code> 后，HTTPS
               CONNECT 从这台探针出口。密码只显示这一次。探针需升级到支持代理转发的版本。
+              <br />
+              注意：若 Host 前面有 nginx 等反向代理，CONNECT 方法可能被直接拦掉（nginx 返回 405），
+              此时请改用下面的隧道客户端，它走 WebSocket，同一端口即可穿透反代。
             </p>
             <Button size="sm" onClick={issueProxy} disabled={proxyBusy}>
               {proxyBusy ? '签发中…' : '签发 10 分钟账号'}
@@ -1337,6 +1391,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                     {copiedProxy === 'url' ? <Check className="size-3.5 text-emerald-400" /> : <Copy className="size-3.5" />}
                   </Button>
                 </div>
+
+                {proxyIssued.tunnel_download_base && (
+                  <div className="space-y-2 border-t border-border/60 pt-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] font-semibold">
+                        交互式隧道客户端 <span className="font-normal text-muted-foreground">（推荐：反代通常会拦 CONNECT）</span>
+                      </div>
+                      <select
+                        value={tunnelPlatform}
+                        onChange={(e) => setTunnelPlatform(e.target.value)}
+                        className="rounded border border-border bg-background px-1.5 py-0.5 text-[11px]"
+                      >
+                        {TUNNEL_PLATFORMS.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="relative">
+                      <pre className="overflow-x-auto rounded bg-zinc-950 p-2.5 pr-10 font-mono text-[11px] text-emerald-400">
+                        {tunnelCommand(proxyIssued, tunnelPlatform)}
+                      </pre>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="absolute right-2 top-2 size-7 p-0"
+                        onClick={() => copyProxyValue('tunnel', tunnelCommand(proxyIssued, tunnelPlatform))}
+                      >
+                        {copiedProxy === 'tunnel' ? <Check className="size-3.5 text-emerald-400" /> : <Copy className="size-3.5" />}
+                      </Button>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      客户端会下载到当前目录。启动后按 <code>l</code> 可开一个仅监听 127.0.0.1 的本地代理，
+                      也能直接用 <code>--listen 127.0.0.1:8899</code> 非交互启动。
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             <div className="space-y-2">

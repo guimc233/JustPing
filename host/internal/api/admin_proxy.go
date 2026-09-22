@@ -3,9 +3,11 @@ package api
 import (
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/guimc233/JustPing/host/internal/auth"
+	"github.com/guimc233/JustPing/host/internal/buildinfo"
 	"github.com/guimc233/JustPing/host/internal/db"
 	"github.com/guimc233/JustPing/host/internal/model"
 	"github.com/guimc233/JustPing/host/internal/proxy"
@@ -29,6 +31,11 @@ type issuedProxySessionView struct {
 	proxySessionView
 	Password string `json:"password"`
 	ProxyURL string `json:"proxy_url"`
+	// TunnelDownloadBase is where the interactive tunnel client binaries live,
+	// so the UI can build a download-then-run command.
+	TunnelDownloadBase string `json:"tunnel_download_base"`
+	// ServerURL is the public Host URL the client should connect to.
+	ServerURL string `json:"server_url"`
 }
 
 func adminCreateProxySession(c *gin.Context) {
@@ -53,9 +60,11 @@ func adminCreateProxySession(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusCreated, issuedProxySessionView{
-		proxySessionView: viewSession(issued.Session),
-		Password:         issued.Password,
-		ProxyURL:         proxyURL(c.Request.Host, issued.Username, issued.Password),
+		proxySessionView:   viewSession(issued.Session),
+		Password:           issued.Password,
+		ProxyURL:           proxyURL(c.Request.Host, issued.Username, issued.Password),
+		TunnelDownloadBase: tunnelDownloadBase(),
+		ServerURL:          publicURL(c),
 	})
 }
 
@@ -99,4 +108,27 @@ func proxyURL(host, username, password string) string {
 		Host:   host,
 	}
 	return u.String()
+}
+
+// publicURL is the Host URL to advertise to clients: the configured app_url when
+// set, otherwise the address the request came in on.
+func publicURL(c *gin.Context) string {
+	if appURL := db.GetSetting("app_url"); appURL != "" {
+		return strings.TrimRight(appURL, "/")
+	}
+	return "http://" + c.Request.Host
+}
+
+// tunnelDownloadBase points at the release assets holding the tunnel client
+// binaries. It prefers the running release so the client matches the Host, and
+// falls back to the latest release for development builds.
+func tunnelDownloadBase() string {
+	const releases = "https://github.com/guimc233/JustPing/releases"
+	v := buildinfo.Version
+	// A production build carries the release tag, e.g. "v1.2.2". Anything else
+	// ("dev", "dev-abc1234") has no matching release.
+	if strings.HasPrefix(v, "v") && !strings.Contains(v, "-") {
+		return releases + "/download/" + v
+	}
+	return releases + "/latest/download"
 }

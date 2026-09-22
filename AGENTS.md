@@ -5,13 +5,15 @@ JustPing is a distributed network-latency monitoring platform: a Go host server,
 ## Project Structure
 
 - `host/` — Go server. Entrypoint `host/cmd/server/main.go`; packages under `host/internal/` (`api`, `auth`, `db`, `model`, `ws`, `ui`).
-- `agent/` — Go probe. Entrypoint `agent/cmd/agent/`; packages `internal/pinger`, `internal/client`, `internal/service`.
+- `agent/` — Go probe. Entrypoint `agent/cmd/agent/`; packages `internal/pinger`, `internal/client`, `internal/service`, `internal/traceroute`, `internal/updater`.
+- `tunnel/` — Go TUI client for the temporary HTTPS exit. Entrypoint `tunnel/cmd/tunnel/`; builds on the same platform matrix as `host`.
 - `shared/protocol/` — WebSocket message types shared by host and agent.
+- `shared/version/`, `shared/wsutil/` — version helpers and the WebSocket↔net.Conn adapter, shared by host, agent, and tunnel.
 - `web/` — Vite + React + TypeScript + Tailwind UI (`web/src/components`, `web/src/lib`). `@/` aliases `web/src`.
 - `scripts/install.sh` — universal Linux agent installer (systemd, OpenRC, procd, runit, SysVinit).
 - `.github/workflows/ci.yml` — builds binaries, Docker image, and tagged releases.
 
-`host`, `agent`, and `shared` form a Go 1.22 workspace (`go.work`). Each is its own Go module with `replace` directives to `../shared`.
+`host`, `agent`, `tunnel`, and `shared` form a Go workspace (`go.work`). Each is its own Go module with `replace` directives to `../shared`. `host`, `agent`, and `shared` build with Go 1.22; `tunnel` requires Go 1.24 because its TUI dependency pulls in a newer `golang.org/x/sys`.
 
 ## Build, Test, and Development Commands
 

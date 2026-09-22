@@ -76,6 +76,13 @@ func main() {
 
 	proxy.Default.SetBridge(ws.DefaultHub)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// A reverse proxy in front of us usually refuses CONNECT (nginx: 405),
+		// so the same tunnels are also served over a WebSocket upgrade, which
+		// reverse proxies do forward. See proxy.TunnelPath.
+		if proxy.IsTunnelRequest(req) {
+			proxy.HandleTunnel(w, req)
+			return
+		}
 		if req.Method == http.MethodConnect {
 			proxy.HandleConnect(w, req)
 			return

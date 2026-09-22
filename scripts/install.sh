@@ -43,7 +43,7 @@ print_help() {
     echo "Options:"
     echo "  -s, --server <URL>     Host URL (e.g. https://ping.example.com)"
     echo "  -t, --token <TOKEN>    Agent enrollment token"
-    echo "  -v, --version <TAG>    Agent version (default: latest)"
+    echo "  -v, --version <TAG>    Agent version, e.g. v1.2.2 or 1.2.2 (default: latest)"
     echo "      --china-mirror     Probe GitHub mirrors in parallel and use the fastest one"
     echo "      --uninstall        Uninstall and remove JustPing Agent service and files"
     echo "  -h, --help             Show this help message"
@@ -164,7 +164,13 @@ CHECKSUMS_FILE="${TMP_DIR}/SHA256SUMS.txt"
 if [ "${VERSION}" = "latest" ]; then
     RELEASE_PATH="/${REPO}/releases/latest/download"
 else
-    RELEASE_PATH="/${REPO}/releases/download/${VERSION}"
+    # Release tags carry a leading v, but accept a bare version too and normalize
+    # it so both "1.2.1" and "v1.2.1" resolve to the same tag.
+    case "${VERSION}" in
+        v*) RELEASE_TAG="${VERSION}" ;;
+        *)  RELEASE_TAG="v${VERSION}" ;;
+    esac
+    RELEASE_PATH="/${REPO}/releases/download/${RELEASE_TAG}"
 fi
 GITHUB_BASE="https://github.com${RELEASE_PATH}"
 

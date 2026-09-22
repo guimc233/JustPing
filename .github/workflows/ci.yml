@@ -43,6 +43,17 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Resolve version
+        id: version
+        run: |
+          # Tag builds carry their release tag; anything else is a development
+          # build, which must not advertise a branch name as its version.
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=dev-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -72,7 +83,7 @@ jobs:
         run: |
           mkdir -p ../dist
           OUTPUT="../dist/justping-host-${{ matrix.name }}${{ matrix.ext }}"
-          go build -ldflags="-s -w -X github.com/guimc233/JustPing/host/internal/buildinfo.Version=${{ github.ref_name }}" -o "$OUTPUT" ./cmd/server
+          go build -ldflags="-s -w -X github.com/guimc233/JustPing/host/internal/buildinfo.Version=${{ steps.version.outputs.value }}" -o "$OUTPUT" ./cmd/server
 
       - name: Upload Host Artifact
         uses: actions/upload-artifact@v4
@@ -173,6 +184,15 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=dev-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -191,7 +211,7 @@ jobs:
         run: |
           mkdir -p ../dist
           OUTPUT="../dist/justping-agent-${{ matrix.name }}${{ matrix.ext }}"
-          go build -ldflags="-s -w -X main.Version=${{ github.ref_name }}" -o "$OUTPUT" ./cmd/agent
+          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.value }}" -o "$OUTPUT" ./cmd/agent
 
       - name: Upload Agent Artifact
         uses: actions/upload-artifact@v4
@@ -200,7 +220,75 @@ jobs:
           path: dist/justping-agent-${{ matrix.name }}${{ matrix.ext }}
 
   # =========================================================================
-  # 3. Build & Push Multi-Arch Docker Image to GHCR
+  # 3. Build Tunnel Client Binaries
+  # =========================================================================
+  build-tunnel-binaries:
+    name: Build Tunnel Client (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Same platform set as the Host: the client is run by operators on
+        # desktop machines, not on the probes.
+        include:
+          - os: linux
+            arch: amd64
+            name: linux-amd64
+            ext: ""
+          - os: linux
+            arch: arm64
+            name: linux-arm64
+            ext: ""
+          - os: windows
+            arch: amd64
+            name: windows-amd64
+            ext: ".exe"
+          - os: windows
+            arch: arm64
+            name: windows-arm64
+            ext: ".exe"
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=dev-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          # The TUI client needs a newer toolchain than the Host and probe:
+          # bubbletea pulls in golang.org/x/sys, which requires Go 1.24.
+          go-version: '1.24'
+          cache-dependency-path: '**/go.sum'
+
+      - name: Compile Tunnel Client Binary
+        working-directory: tunnel
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          GOWORK: off
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p ../dist
+          OUTPUT="../dist/justping-tunnel-${{ matrix.name }}${{ matrix.ext }}"
+          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.value }}" -o "$OUTPUT" ./cmd/tunnel
+
+      - name: Upload Tunnel Client Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunnel-${{ matrix.name }}
+          path: dist/justping-tunnel-${{ matrix.name }}${{ matrix.ext }}
+
+  # =========================================================================
+  # 4. Build & Push Multi-Arch Docker Image to GHCR
   # =========================================================================
   docker:
     name: Build & Push Multi-Arch Docker Image
@@ -209,6 +297,15 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=dev-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -241,16 +338,16 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ steps.version.outputs.value }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
   # =========================================================================
-  # 4. Release Assets (When Tagged)
+  # 5. Release Assets (When Tagged)
   # =========================================================================
   release:
     name: Create GitHub Release
-    needs: [build-host-binaries, build-agent-binaries]
+    needs: [build-host-binaries, build-agent-binaries, build-tunnel-binaries]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
