@@ -18,6 +18,7 @@ import (
 	"github.com/guimc233/JustPing/agent/internal/service"
 	"github.com/guimc233/JustPing/agent/internal/updater"
 	"github.com/guimc233/JustPing/shared/protocol"
+	"github.com/guimc233/JustPing/shared/version"
 )
 
 var (
@@ -45,7 +46,7 @@ func main() {
 	flag.Parse()
 
 	if *versionFlag {
-		fmt.Printf("JustPing Agent v%s (%s)\n", Version, GitCommit)
+		fmt.Printf("JustPing Agent %s (%s)\n", version.Display(Version), GitCommit)
 		return
 	}
 
@@ -147,7 +148,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	log.Printf("Starting JustPing Agent v%s...\n", Version)
+	log.Printf("Starting JustPing Agent %s...\n", version.Display(Version))
 	log.Printf("Target Host: %s\n", cfg.Server)
 	if cfg.ChinaMirror {
 		log.Printf("China mirror: enabled\n")

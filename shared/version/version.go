@@ -32,6 +32,24 @@ func IsUnknown(v string) bool {
 	return clean == "" || clean == Unknown || clean == Dev
 }
 
+// Display renders a version for humans with exactly one leading "v".
+//
+// Release tags are carried verbatim and already include the prefix ("v1.2.1"),
+// while a bare version ("1.2.1") is equally valid input, so callers must not
+// prepend "v" themselves or they produce "vv1.2.1". Placeholders such as "dev"
+// or "unknown" are returned unchanged rather than decorated into "vdev".
+func Display(v string) string {
+	raw := strings.TrimSpace(v)
+	if raw == "" {
+		return ""
+	}
+	clean := Clean(raw)
+	if clean == "" || clean[0] < '0' || clean[0] > '9' {
+		return raw
+	}
+	return "v" + clean
+}
+
 // Compare compares two semver strings (e.g. "1.2.3" and "1.2.4").
 // Returns 1 if v1 > v2, -1 if v1 < v2, and 0 if v1 == v2.
 func Compare(v1, v2 string) int {

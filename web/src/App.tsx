@@ -3,6 +3,7 @@ import { Navbar } from './components/Navbar'
 import { SetupWizard } from './components/SetupWizard'
 import { PublicDashboard } from './components/PublicDashboard'
 import { AdminPanel } from './components/AdminPanel'
+import { formatVersion } from './lib/utils'
 import { ShieldAlert, X } from 'lucide-react'
 
 export function App() {
@@ -160,7 +161,7 @@ export function App() {
             <>
               <span>•</span>
               <span className="font-mono" title="Host build version">
-                host v{hostVersion}
+                host {formatVersion(hostVersion)}
               </span>
             </>
           )}

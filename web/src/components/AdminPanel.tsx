@@ -4,6 +4,7 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Badge } from './ui/badge'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from './ui/table'
+import { formatVersion } from '@/lib/utils'
 import {
   Target,
   Server,
@@ -284,7 +285,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
     const min = featureMinVersion(key)
     const name = featureDefs.find((f) => f.key === key)?.name || key
     return min
-      ? `${base}\n\n⚠ ${name} 需探针 v${min}+，当前 v${agent.version || '未知'}，请先触发更新`
+      ? `${base}\n\n⚠ ${name} 需探针 v${min}+，当前 ${formatVersion(agent.version, '未知')}，请先触发更新`
       : `${base}\n\n⚠ 当前探针版本不支持 ${name}`
   }
 
@@ -500,12 +501,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   // within its timeout. Say which one will happen so the warning is accurate.
   const restartWarningFor = (a: any) =>
     a.force_restart_mode === UPDATE_MODE_SOFT_EXIT
-      ? `Probe "${a.name}" (v${a.version || 'unknown'}) will be asked to exit cleanly. Its service ` +
+      ? `Probe "${a.name}" (${formatVersion(a.version)}) will be asked to exit cleanly. Its service ` +
         `supervisor restarts it and the start-up auto-updater then installs the latest release.\n\n` +
         `If it does not exit within 10 seconds the Host will CRASH the process instead.\n\n` +
         `Telemetry from this probe pauses until it restarts. Continue?`
       : `⚠ CRASH REQUIRED\n\n` +
-        `Probe "${a.name}" (v${a.version || 'unknown'}) is too old to exit on request, so it can only be ` +
+        `Probe "${a.name}" (${formatVersion(a.version)}) is too old to exit on request, so it can only be ` +
         `restarted by CRASHING the process. This sends a malformed target sync that kills it.\n\n` +
         `It will only come back if a service supervisor restarts it (systemd Restart=always, ` +
         `procd respawn, ...), after which its start-up auto-updater installs the latest release.\n\n` +
