@@ -107,7 +107,10 @@ func socksNegotiate(conn net.Conn, br *bufio.Reader) error {
 
 // socksReadRequest parses the CONNECT request and returns "host:port".
 func socksReadRequest(conn net.Conn, br *bufio.Reader) (string, error) {
-	head := make([]byte, 3)
+	// VER, CMD, RSV, ATYP. All four must be consumed together: reading only
+	// three and treating the reserved byte as the address type makes every
+	// request look like an unsupported ATYP.
+	head := make([]byte, 4)
 	if _, err := io.ReadFull(br, head); err != nil {
 		return "", err
 	}
@@ -119,8 +122,9 @@ func socksReadRequest(conn net.Conn, br *bufio.Reader) (string, error) {
 		_ = socksWriteReply(conn, socksReplyCmdNotSupported)
 		return "", errors.New("unsupported command")
 	}
+	// head[2] is RSV and must be zero, but it carries no information.
 
-	target, err := socksReadAddr(br, head[2])
+	target, err := socksReadAddr(br, head[3])
 	if err != nil {
 		_ = socksWriteReply(conn, socksReplyAtypNotSupported)
 		return "", err
