@@ -11,7 +11,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -23,10 +25,13 @@ func main() {
 	var (
 		serverFlag     = flag.String("server", "", "JustPing Host URL (e.g. https://ping.example.com)")
 		credentialFlag = flag.String("credential", "", "Proxy credential as user:password (or set JUSTPING_PROXY_CREDENTIAL)")
-		listenFlag     = flag.String("listen", "", "Also listen on this loopback address as an HTTP proxy (e.g. 127.0.0.1:8899)")
+		listenFlag     = flag.String("listen", "", "Also listen on this loopback address as a SOCKS5 + HTTP proxy (e.g. 127.0.0.1:8899)")
+		noTUIFlag      = flag.Bool("no-tui", false, "Run without the interactive console, keeping --listen and --forward in the foreground")
+		forwardFlags   = multiFlag{}
 		insecureFlag   = flag.Bool("insecure", false, "Skip TLS verification of the Host certificate")
 		versionFlag    = flag.Bool("version", false, "Show version and exit")
 	)
+	flag.Var(&forwardFlags, "forward", "Forward a local port through the probe, as localPort:host:port (repeatable)")
 	flag.Parse()
 
 	if *versionFlag {
@@ -54,35 +59,84 @@ func main() {
 		os.Exit(2)
 	}
 
+	logs := newLogBuffer(200)
+	logf := logs.add
+
 	dialer, err := NewDialer(server, user, pass, *insecureFlag)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	proxy := NewLocalProxy(dialer)
-	m := newModel(server, user, dialer, proxy)
+	proxy := NewLocalProxy(dialer, logf)
+	forwarder := NewForwarder(dialer, logf)
+	cleanup := func() {
+		_ = proxy.Stop()
+		forwarder.CloseAll()
+		dialer.CloseAll()
+	}
 
-	// A non-empty --listen starts the local proxy immediately instead of waiting
-	// for the toggle, so the client is usable from a script without the TUI.
 	if *listenFlag != "" {
 		if err := proxy.Start(*listenFlag); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		m.log("local proxy listening on %s", proxy.Addr())
+		logf("mixed proxy listening on %s", proxy.Addr())
+	}
+	for _, spec := range forwardFlags {
+		if _, err := forwarder.Add(spec); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			cleanup()
+			os.Exit(1)
+		}
 	}
 
+	// Headless mode makes the client usable from scripts and services, where an
+	// interactive console would just get in the way.
+	if *noTUIFlag {
+		runHeadless(proxy, forwarder)
+		cleanup()
+		return
+	}
+
+	m := newModel(server, user, dialer, proxy, forwarder, logs)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		proxy.Stop()
-		dialer.CloseAll()
+		cleanup()
 		os.Exit(1)
 	}
 
-	_ = proxy.Stop()
-	dialer.CloseAll()
+	cleanup()
+}
+
+// runHeadless blocks until the process is asked to stop, leaving the configured
+// listeners running.
+func runHeadless(proxy *LocalProxy, forwarder *Forwarder) {
+	if proxy.Addr() != "" {
+		fmt.Fprintf(os.Stderr, "mixed proxy on %s\n", proxy.Addr())
+	}
+	for _, rule := range forwarder.Rules() {
+		fmt.Fprintf(os.Stderr, "forward %s -> %s\n", rule.LocalAddr, rule.Target)
+	}
+	if proxy.Addr() == "" && len(forwarder.Rules()) == 0 {
+		fmt.Fprintln(os.Stderr, "nothing to do: pass --listen and/or --forward with --no-tui")
+		return
+	}
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	<-signals
+}
+
+// multiFlag collects a repeatable string flag.
+type multiFlag []string
+
+func (m *multiFlag) String() string { return strings.Join(*m, ",") }
+
+func (m *multiFlag) Set(value string) error {
+	*m = append(*m, value)
+	return nil
 }
 
 func firstNonEmpty(values ...string) string {

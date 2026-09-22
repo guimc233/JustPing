@@ -134,14 +134,31 @@ chmod +x justping-tunnel
 ./justping-tunnel --server https://ping.example.com --credential <user>:<password>
 ```
 
-The client is an interactive console: open tunnels and watch their byte counters, issue HTTP requests straight through the probe, and toggle a loopback-only HTTP proxy (`l`) when you want `curl` or a browser to use it. Press `t` to open a tunnel, `r` to run a request, `l` to toggle the local proxy, `x` to release every tunnel, `c` to clear the panes, and `q` to quit. For scripting, skip the UI with `--listen 127.0.0.1:8899`, which starts the local proxy immediately:
+The client is an interactive console. It can carry traffic three ways, all through the same probe:
+
+| Mode | How to use it |
+| --- | --- |
+| Mixed SOCKS5 + HTTP proxy | `l` in the UI, or `--listen 127.0.0.1:8899`. One port serves both: SOCKS5 for anything that speaks it, HTTP CONNECT for the rest. |
+| Port forwarding | `f` in the UI, or `--forward 5432:db.internal:5432`. Any TCP client can connect to the local port; no proxy support needed. |
+| One-off HTTPS request | `r` in the UI, which sends a request straight out through the probe. |
+
+Keys: `t` opens a bare tunnel, `f` adds a forward, `r` runs a request, `l` toggles the mixed proxy, `x` closes the tunnels, `c` clears the panes, `q` quits.
 
 ```bash
-./justping-tunnel --server https://ping.example.com --credential <user>:<password> --listen 127.0.0.1:8899
-export https_proxy=http://127.0.0.1:8899
+# SOCKS5 (most tools)
+curl --socks5-hostname 127.0.0.1:8899 https://example.com
+# or the HTTP proxy form
+curl -x http://127.0.0.1:8899 https://example.com
 ```
 
-The listen address is restricted to loopback: this listener is unauthenticated, and the probe credential is short-lived and meant for the operator only.
+For scripts and services, `--no-tui` keeps the listeners in the foreground instead of drawing the console:
+
+```bash
+justping-tunnel --server https://ping.example.com --credential <user>:<password> \
+  --listen 127.0.0.1:8899 --forward 5432:db.internal:5432 --no-tui
+```
+
+Every listener is restricted to loopback: they are unauthenticated, and the probe credential is short-lived and meant for the operator only. Established tunnels are kept alive with WebSocket pings, so a reverse proxy in front of the Host does not close an idle long-lived connection.
 
 ---
 

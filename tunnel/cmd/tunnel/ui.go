@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -20,10 +21,57 @@ const (
 	modeTarget
 	modeRequest
 	modeListen
+	modeForward
 )
 
 type tickMsg time.Time
-type logMsg string
+
+// logBuffer is the activity log shared between the TUI and the background tunnel
+// and forward goroutines, so it has to be safe for concurrent use.
+type logBuffer struct {
+	mu    sync.Mutex
+	lines []string
+	max   int
+}
+
+func newLogBuffer(max int) *logBuffer {
+	return &logBuffer{lines: []string{}, max: max}
+}
+
+func (b *logBuffer) add(format string, args ...any) {
+	line := time.Now().Format("15:04:05") + "  " + fmt.Sprintf(format, args...)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.lines = append(b.lines, line)
+	if len(b.lines) > b.max {
+		b.lines = b.lines[len(b.lines)-b.max:]
+	}
+}
+
+func (b *logBuffer) tail(n int) []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.lines) <= n {
+		out := make([]string, len(b.lines))
+		copy(out, b.lines)
+		return out
+	}
+	out := make([]string, n)
+	copy(out, b.lines[len(b.lines)-n:])
+	return out
+}
+
+func (b *logBuffer) clear() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.lines = []string{}
+}
+
+func (b *logBuffer) empty() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.lines) == 0
+}
 
 type targetResultMsg struct {
 	addr string
@@ -46,8 +94,10 @@ type listenResultMsg struct {
 
 // model is the TUI state.
 type model struct {
-	dialer *Dialer
-	proxy  *LocalProxy
+	dialer    *Dialer
+	proxy     *LocalProxy
+	forwarder *Forwarder
+	logs      *logBuffer
 
 	server string
 	user   string
@@ -55,9 +105,6 @@ type model struct {
 	mode   inputMode
 	input  string
 	prompt string
-
-	logs   []string
-	logMax int
 
 	reqs   []requestResultMsg
 	reqMax int
@@ -78,16 +125,16 @@ var (
 	headStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
 )
 
-func newModel(server, user string, d *Dialer, p *LocalProxy) model {
+func newModel(server, user string, d *Dialer, p *LocalProxy, f *Forwarder, logs *logBuffer) model {
 	return model{
-		dialer: d,
-		proxy:  p,
-		server: server,
-		user:   user,
-		logs:   []string{},
-		logMax: 200,
-		reqs:   []requestResultMsg{},
-		reqMax: 20,
+		dialer:    d,
+		proxy:     p,
+		forwarder: f,
+		logs:      logs,
+		server:    server,
+		user:      user,
+		reqs:      []requestResultMsg{},
+		reqMax:    20,
 	}
 }
 
@@ -101,12 +148,10 @@ func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
+// forwardEvent is delivered in an Update so background forward rules appear in
+// the log without writing to the model from another goroutine.
 func (m *model) log(format string, args ...any) {
-	line := time.Now().Format("15:04:05") + "  " + fmt.Sprintf(format, args...)
-	m.logs = append(m.logs, line)
-	if len(m.logs) > m.logMax {
-		m.logs = m.logs[len(m.logs)-m.logMax:]
-	}
+	m.logs.add(format, args...)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -117,10 +162,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		return m, tick()
-
-	case logMsg:
-		m.log("%s", string(msg))
-		return m, nil
 
 	case targetResultMsg:
 		if msg.err != nil {
@@ -205,12 +246,16 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input = "https://"
 	case "l":
 		return m.toggleLocalProxy()
+	case "f":
+		m.mode = modeForward
+		m.prompt = "localPort:host:port"
+		m.input = ""
 	case "x":
 		n := len(m.dialer.Tunnels())
 		m.dialer.CloseAll()
 		m.log("closed %d tunnel(s)", n)
 	case "c":
-		m.logs = []string{}
+		m.logs.clear()
 		m.reqs = []requestResultMsg{}
 	}
 	return m, nil
@@ -227,6 +272,14 @@ func (m model) submit(mode inputMode, value string) (tea.Model, tea.Cmd) {
 	case modeRequest:
 		m.log("requesting %s", value)
 		return m, doRequest(m.dialer, value)
+	case modeForward:
+		rule, err := m.forwarder.Add(value)
+		if err != nil {
+			m.log("forward failed: %v", err)
+			return m, nil
+		}
+		m.log("forward %s -> %s", rule.LocalAddr, rule.Target)
+		return m, nil
 	}
 	return m, nil
 }
@@ -318,6 +371,9 @@ func (m model) View() string {
 
 	b.WriteString(m.statusBlock())
 	b.WriteString("\n")
+	b.WriteString(headStyle.Render("Forwards") + "\n")
+	b.WriteString(m.forwardsBlock())
+	b.WriteString("\n")
 	b.WriteString(headStyle.Render("Tunnels") + "\n")
 	b.WriteString(m.tunnelsBlock())
 	b.WriteString("\n")
@@ -332,7 +388,7 @@ func (m model) View() string {
 		b.WriteString(warnStyle.Render("> "+m.prompt+": ") + m.input + "▏\n")
 		b.WriteString(helpStyle.Render("enter confirm · esc cancel") + "\n")
 	} else {
-		b.WriteString(helpStyle.Render("[t] open tunnel  [r] request  [l] local proxy  [x] close tunnels  [c] clear  [q] quit") + "\n")
+		b.WriteString(helpStyle.Render("[t] tunnel  [f] forward port  [r] request  [l] mixed proxy  [x] close tunnels  [c] clear  [q] quit") + "\n")
 	}
 
 	return b.String()
@@ -360,6 +416,18 @@ func (m model) statusBlock() string {
 	var b strings.Builder
 	for _, r := range rows {
 		b.WriteString(" " + labelStyle.Render(pad(r[0], 12)) + " " + valueStyle.Render(r[1]) + "\n")
+	}
+	return b.String()
+}
+
+func (m model) forwardsBlock() string {
+	rules := m.forwarder.Rules()
+	if len(rules) == 0 {
+		return " " + labelStyle.Render("none") + "\n"
+	}
+	var b strings.Builder
+	for _, r := range rules {
+		b.WriteString(" " + valueStyle.Render(r.LocalAddr) + " " + labelStyle.Render("->") + " " + r.Target + "\n")
 	}
 	return b.String()
 }
@@ -420,7 +488,7 @@ func (m model) requestsBlock() string {
 }
 
 func (m model) logBlock() string {
-	if len(m.logs) == 0 {
+	if m.logs.empty() {
 		return " " + labelStyle.Render("no activity yet") + "\n"
 	}
 	available := 6
@@ -430,12 +498,8 @@ func (m model) logBlock() string {
 			available = 4
 		}
 	}
-	logs := m.logs
-	if len(logs) > available {
-		logs = logs[len(logs)-available:]
-	}
 	var b strings.Builder
-	for _, l := range logs {
+	for _, l := range m.logs.tail(available) {
 		b.WriteString(" " + l + "\n")
 	}
 	return b.String()

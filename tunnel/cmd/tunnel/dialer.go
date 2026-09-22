@@ -25,6 +25,16 @@ const tunnelPath = "/api/proxy/tunnel"
 // handshakeTimeout bounds the WebSocket dial and the target-open round trip.
 const handshakeTimeout = 15 * time.Second
 
+// Keepalive for established tunnels. A reverse proxy in front of the Host closes
+// a WebSocket it considers idle (nginx's proxy_read_timeout defaults to 60s), so
+// the client pings on an interval well under that. The rolling read deadline then
+// doubles as dead-peer detection: the Host pongs automatically, and if pongs stop
+// arriving the relay ends instead of hanging.
+const (
+	keepAliveInterval = 25 * time.Second
+	keepAliveTimeout  = 90 * time.Second
+)
+
 // ErrUnauthorized means the proxy credential was rejected, usually because it
 // expired (the Host issues them with a 10-minute TTL).
 var ErrUnauthorized = errors.New("credential rejected or expired; issue a new one in the web UI")
@@ -50,9 +60,17 @@ type Tunnel struct {
 	// conn closes the tunnel; kept here so shutdown can release every tunnel.
 	conn io.Closer
 
+	done      chan struct{}
+	closeOnce sync.Once
+
 	mu     sync.Mutex
 	closed bool
 	err    error
+}
+
+// close marks the tunnel closed and releases anything waiting on it.
+func (t *Tunnel) close() {
+	t.closeOnce.Do(func() { close(t.done) })
 }
 
 // Done reports whether the tunnel has closed and why.
@@ -163,6 +181,7 @@ func (d *Dialer) dialTarget(target string) (net.Conn, *Tunnel, error) {
 		ID:      atomic.AddInt64(&d.nextID, 1),
 		Target:  target,
 		Started: time.Now(),
+		done:    make(chan struct{}),
 	}
 
 	tracked := &countedConn{Conn: wsutil.NewConn(conn), t: t, onClose: func(err error) {
@@ -172,6 +191,7 @@ func (d *Dialer) dialTarget(target string) (net.Conn, *Tunnel, error) {
 			t.err = err
 		}
 		t.mu.Unlock()
+		t.close()
 		d.forget(t.ID)
 	}}
 
@@ -197,12 +217,38 @@ func (d *Dialer) dialTarget(target string) (net.Conn, *Tunnel, error) {
 		return nil, nil, fmt.Errorf("%s: %s", target, msg)
 	}
 
+	// The handshake is done: switch from a fixed deadline to the rolling
+	// keepalive deadline that doubles as dead-peer detection.
+	_ = conn.SetReadDeadline(time.Now().Add(keepAliveTimeout))
+	conn.SetPongHandler(func(string) error {
+		_ = conn.SetReadDeadline(time.Now().Add(keepAliveTimeout))
+		return nil
+	})
+	go keepAlive(conn, t)
+
 	t.conn = tracked
 	d.mu.Lock()
 	d.tunnels[t.ID] = t
 	d.mu.Unlock()
 
 	return tracked, t, nil
+}
+
+// keepAlive pings the Host so intermediaries do not treat the tunnel as idle.
+// WriteControl may run concurrently with the relay's writes; plain writes may not.
+func keepAlive(ws *websocket.Conn, t *Tunnel) {
+	ticker := time.NewTicker(keepAliveInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-t.done:
+			return
+		case <-ticker.C:
+			if err := ws.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second)); err != nil {
+				return
+			}
+		}
+	}
 }
 
 func (d *Dialer) forget(id int64) {
@@ -235,6 +281,7 @@ func (d *Dialer) CloseAll() {
 		t.closed = true
 		conn := t.conn
 		t.mu.Unlock()
+		t.close()
 		if conn != nil {
 			_ = conn.Close()
 		}
