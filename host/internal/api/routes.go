@@ -51,7 +51,9 @@ func RegisterRoutes(r *gin.Engine) {
 		// Agents
 		admin.GET("/agents", adminListAgents)
 		admin.POST("/agents", adminCreateAgent)
+		admin.POST("/agents/update-check", adminAllAgentsUpdateCheck)
 		admin.POST("/agents/:id/rotate-token", adminRotateAgentToken)
+		admin.POST("/agents/:id/update-check", adminAgentUpdateCheck)
 		admin.PUT("/agents/:id", adminUpdateAgent)
 		admin.DELETE("/agents/:id", adminDeleteAgent)
 

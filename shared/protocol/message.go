@@ -17,6 +17,8 @@ const (
 	TypeProxyOpenResult  MessageType = "proxy_open_result"
 	TypeProxyData        MessageType = "proxy_data"
 	TypeProxyClose       MessageType = "proxy_close"
+	TypeUpdateCheck      MessageType = "update_check"
+	TypeUpdateResult     MessageType = "update_result"
 	TypeError            MessageType = "error"
 )
 
@@ -133,4 +135,15 @@ type ProxyDataPayload struct {
 type ProxyClosePayload struct {
 	TunnelID string `json:"tunnel_id"`
 	Reason   string `json:"reason,omitempty"`
+}
+
+// UpdateResultPayload is sent from Agent to Host after a Host-triggered
+// update check. Updating is true when the probe replaced its own binary
+// and is about to restart.
+type UpdateResultPayload struct {
+	AgentID        string `json:"agent_id"`
+	CurrentVersion string `json:"current_version"`
+	LatestVersion  string `json:"latest_version,omitempty"`
+	Updating       bool   `json:"updating"`
+	Error          string `json:"error,omitempty"`
 }

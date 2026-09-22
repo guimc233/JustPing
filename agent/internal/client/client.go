@@ -30,6 +30,7 @@ type Client struct {
 	queueMu     sync.Mutex
 	stopCh      chan struct{}
 	syncHook    func([]protocol.TargetConfig)
+	updateHook  func()
 	proxy       proxyManager
 }
 
@@ -43,6 +44,30 @@ func NewClient(cfg Config, p *pinger.Pinger, syncHook func([]protocol.TargetConf
 	}
 	c.proxy.init(c.sendEnvelope)
 	return c
+}
+
+// SetUpdateHook registers the callback invoked when the Host asks this probe to
+// check for updates. It must be called before Start to avoid racing the read loop.
+func (c *Client) SetUpdateHook(hook func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.updateHook = hook
+}
+
+func (c *Client) updateHandler() func() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.updateHook
+}
+
+// SendUpdateResult reports the outcome of a Host-triggered update check.
+// It is best-effort: the connection may already be gone.
+func (c *Client) SendUpdateResult(res protocol.UpdateResultPayload) {
+	c.mu.Lock()
+	res.AgentID = c.agentID
+	c.mu.Unlock()
+
+	_ = c.sendEnvelope(protocol.TypeUpdateResult, res)
 }
 
 func (c *Client) Start(ctx context.Context) {

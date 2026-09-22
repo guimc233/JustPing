@@ -146,6 +146,13 @@ func (c *Client) connectAndServe(ctx context.Context, backoff *time.Duration) er
 				}
 			}
 		}
+		if env.Type == protocol.TypeUpdateCheck {
+			log.Printf("[Agent WS] Host requested an immediate update check\n")
+			if hook := c.updateHandler(); hook != nil {
+				// Run off the read loop: the updater may replace the binary and restart the agent.
+				go hook()
+			}
+		}
 	}
 }
 

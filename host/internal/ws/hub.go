@@ -17,6 +17,9 @@ type Hub struct {
 	mu      sync.RWMutex
 	agents  map[string]*AgentConn
 	closeCh chan struct{}
+
+	updateMu sync.RWMutex
+	updates  map[string]model.AgentUpdateStatus
 }
 
 var DefaultHub = NewHub()
@@ -25,6 +28,7 @@ func NewHub() *Hub {
 	return &Hub{
 		agents:  make(map[string]*AgentConn),
 		closeCh: make(chan struct{}),
+		updates: make(map[string]model.AgentUpdateStatus),
 	}
 }
 

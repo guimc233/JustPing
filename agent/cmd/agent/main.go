@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -155,6 +156,21 @@ func main() {
 	p := pinger.NewPinger()
 	var sched *TargetScheduler
 
+	// isUpdating is written by the updater goroutines and read by the shutdown
+	// path below, so guard it with a mutex.
+	var updateMu sync.Mutex
+	isUpdating := false
+	markUpdating := func() {
+		updateMu.Lock()
+		isUpdating = true
+		updateMu.Unlock()
+	}
+	updatingNow := func() bool {
+		updateMu.Lock()
+		defer updateMu.Unlock()
+		return isUpdating
+	}
+
 	c := client.NewClient(
 		client.Config{ServerURL: cfg.Server, Token: cfg.Token, Version: Version},
 		p,
@@ -165,10 +181,39 @@ func main() {
 		},
 	)
 
+	c.SetUpdateHook(func() {
+		updaterCfg := updater.Config{
+			CurrentVersion: Version,
+			ChinaMirror:    cfg.ChinaMirror,
+			Repo:           "guimc233/JustPing",
+		}
+
+		updated, ver, err := updater.RunUpdate(updaterCfg, false)
+
+		res := protocol.UpdateResultPayload{
+			CurrentVersion: Version,
+			LatestVersion:  ver,
+			Updating:       updated,
+		}
+		if err != nil {
+			res.Error = err.Error()
+			log.Printf("[Updater] Host-triggered update check failed: %v", err)
+		}
+		c.SendUpdateResult(res)
+
+		if !updated {
+			return
+		}
+
+		// Give the Host a moment to consume the result before the socket closes.
+		time.Sleep(500 * time.Millisecond)
+		markUpdating()
+		cancel()
+	})
+
 	sched = NewTargetScheduler(ctx, p, c)
 	c.Start(ctx)
 
-	isUpdating := false
 	if cfg.IsAutoUpdateEnabled() {
 		updaterCfg := updater.Config{
 			CurrentVersion: Version,
@@ -177,7 +222,7 @@ func main() {
 			Repo:           "guimc233/JustPing",
 		}
 		updater.StartAutoUpdate(ctx, updaterCfg, func(newVersion string) {
-			isUpdating = true
+			markUpdating()
 			log.Printf("[Updater] Agent updated to %s. Restarting...", newVersion)
 			cancel()
 		})
@@ -190,7 +235,7 @@ func main() {
 	case <-sigCh:
 		log.Println("Shutting down JustPing Agent...")
 	case <-ctx.Done():
-		if isUpdating {
+		if updatingNow() {
 			log.Println("Restarting JustPing Agent following update...")
 		}
 	}
@@ -200,7 +245,7 @@ func main() {
 	c.Stop()
 	time.Sleep(300 * time.Millisecond)
 
-	if isUpdating {
+	if updatingNow() {
 		execPath, err := os.Executable()
 		if err == nil {
 			execPath, _ = filepath.EvalSymlinks(execPath)

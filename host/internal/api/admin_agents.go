@@ -23,6 +23,15 @@ type CreateAgentReq struct {
 func adminListAgents(c *gin.Context) {
 	var agents []model.Agent
 	db.DB.Order("created_at desc").Find(&agents)
+
+	statuses := ws.DefaultHub.UpdateStatuses()
+	for i := range agents {
+		if status, ok := statuses[agents[i].ID]; ok {
+			copied := status
+			agents[i].UpdateStatus = &copied
+		}
+	}
+
 	c.JSON(http.StatusOK, agents)
 }
 
@@ -138,4 +147,27 @@ func adminDeleteAgent(c *gin.Context) {
 	db.DB.Delete(&model.Agent{}, "id = ?", id)
 	db.DB.Delete(&model.PingMetric{}, "agent_id = ?", id)
 	c.JSON(http.StatusOK, gin.H{"message": "Agent removed"})
+}
+
+// adminAgentUpdateCheck asks a single probe to check for the latest release and
+// install it immediately. The probe reports the outcome asynchronously.
+func adminAgentUpdateCheck(c *gin.Context) {
+	id := c.Param("id")
+	var agent model.Agent
+	if err := db.DB.First(&agent, "id = ?", id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Agent not found"})
+		return
+	}
+
+	if err := ws.DefaultHub.RequestUpdateCheck(agent.ID); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "Agent is offline"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"triggered": 1})
+}
+
+// adminAllAgentsUpdateCheck asks every online probe to check for updates.
+func adminAllAgentsUpdateCheck(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"triggered": ws.DefaultHub.BroadcastUpdateCheck()})
 }

@@ -186,6 +186,22 @@ func (ac *AgentConn) handleIncomingMessage(env protocol.Envelope) {
 			return
 		}
 		go ac.persistTracerouteReport(report)
+	case protocol.TypeUpdateResult:
+		raw, _ := json.Marshal(env.Payload)
+		var res protocol.UpdateResultPayload
+		if err := json.Unmarshal(raw, &res); err != nil {
+			return
+		}
+		ac.Hub.RecordUpdateStatus(ac.AgentID, res)
+
+		switch {
+		case res.Error != "":
+			log.Printf("[WS] Agent %s update check failed: %s\n", ac.AgentID, res.Error)
+		case res.Updating:
+			log.Printf("[WS] Agent %s is updating %s -> %s\n", ac.AgentID, res.CurrentVersion, res.LatestVersion)
+		default:
+			log.Printf("[WS] Agent %s is up to date (%s)\n", ac.AgentID, res.CurrentVersion)
+		}
 	case protocol.TypeProxyOpenResult, protocol.TypeProxyData, protocol.TypeProxyClose:
 		proxy.Default.HandleAgent(ac.AgentID, env)
 	}

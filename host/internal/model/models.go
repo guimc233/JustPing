@@ -64,6 +64,20 @@ type Agent struct {
 	LastSeenAt           time.Time `json:"last_seen_at"`
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
+
+	// UpdateStatus is runtime-only state reported by the probe after a
+	// Host-triggered update check. It is never persisted.
+	UpdateStatus *AgentUpdateStatus `gorm:"-" json:"update_status,omitempty"`
+}
+
+// AgentUpdateStatus describes the outcome of the most recent Host-triggered
+// update check performed by a probe.
+type AgentUpdateStatus struct {
+	CurrentVersion string    `json:"current_version"`
+	LatestVersion  string    `json:"latest_version"`
+	Updating       bool      `json:"updating"`
+	Error          string    `json:"error,omitempty"`
+	CheckedAt      time.Time `json:"checked_at"`
 }
 
 // PingMetric represents the ping quality measurements

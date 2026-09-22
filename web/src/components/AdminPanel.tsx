@@ -19,6 +19,7 @@ import {
   KeyRound,
   Route,
   Globe,
+  RefreshCw,
   X,
 } from 'lucide-react'
 
@@ -127,6 +128,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   const [copiedProxy, setCopiedProxy] = useState('')
   const proxyReqGen = useRef(0)
   const proxyAbort = useRef<AbortController | null>(null)
+  const agentStatusPoll = useRef<number | null>(null)
 
   const loadProxySessions = async () => {
     const res = await fetch('/api/admin/proxy/sessions')
@@ -229,6 +231,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   const loadAgents = async () => {
     const res = await fetch('/api/admin/agents')
     if (res.ok) setAgents(await res.json())
+  }
+
+  // Probes answer an update check asynchronously (download + verify, then a possible
+  // restart), so poll briefly after a trigger until the reported status shows up.
+  const pollAgentUpdateStatus = () => {
+    if (agentStatusPoll.current !== null) window.clearInterval(agentStatusPoll.current)
+    let ticks = 0
+    agentStatusPoll.current = window.setInterval(() => {
+      loadAgents()
+      ticks += 1
+      if (ticks >= 10 && agentStatusPoll.current !== null) {
+        window.clearInterval(agentStatusPoll.current)
+        agentStatusPoll.current = null
+      }
+    }, 3000)
   }
 
   const loadWhitelist = async () => {
@@ -371,6 +388,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
     if (!confirm('Are you sure you want to remove this probe?')) return
     await fetch(`/api/admin/agents/${id}`, { method: 'DELETE' })
     loadAgents()
+  }
+
+  const handleTriggerAgentUpdate = async (id: string, name: string) => {
+    if (
+      !confirm(
+        `Trigger an immediate update check on probe "${name}"? It will install the latest release and restart when one is available.`
+      )
+    )
+      return
+    const res = await fetch(`/api/admin/agents/${id}/update-check`, { method: 'POST' })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      alert(err.error || 'Failed to trigger update check')
+      return
+    }
+    pollAgentUpdateStatus()
+  }
+
+  const handleTriggerAllAgentUpdates = async () => {
+    if (!confirm('Trigger an immediate update check on every online probe?')) return
+    const res = await fetch('/api/admin/agents/update-check', { method: 'POST' })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      alert(err.error || 'Failed to trigger update checks')
+      return
+    }
+    const data = await res.json().catch(() => ({}))
+    pollAgentUpdateStatus()
+    alert(`Update check triggered on ${data.triggered ?? 0} online probe(s).`)
   }
 
   // Whitelist handlers
@@ -616,10 +662,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                 Manage deployed Go agent probes. Admin view reveals unmasked remote IP addresses.
               </CardDescription>
             </div>
-            <Button size="sm" onClick={() => setShowAddAgent(!showAddAgent)}>
-              <Plus className="size-4 mr-1" />
-              Enroll New Probe
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button size="sm" variant="outline" onClick={handleTriggerAllAgentUpdates}>
+                <RefreshCw className="size-4 mr-1" />
+                Check Updates
+              </Button>
+              <Button size="sm" onClick={() => setShowAddAgent(!showAddAgent)}>
+                <Plus className="size-4 mr-1" />
+                Enroll New Probe
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {showAddAgent && (
@@ -688,13 +740,43 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                     <TableCell className="text-xs text-muted-foreground">
                       {a.os || '—'} / {a.arch || '—'}
                     </TableCell>
-                    <TableCell className="text-xs">{a.version || '—'}</TableCell>
+                    <TableCell className="text-xs">
+                      <div className="flex flex-col items-start gap-1">
+                        <span>{a.version || '—'}</span>
+                        {a.update_status && (
+                          <Badge
+                            variant={a.update_status.error ? 'destructive' : a.update_status.updating ? 'warning' : 'success'}
+                            className="font-mono text-[10px]"
+                            title={
+                              a.update_status.error ||
+                              `Checked ${new Date(a.update_status.checked_at).toLocaleString()}`
+                            }
+                          >
+                            {a.update_status.error
+                              ? 'Update failed'
+                              : a.update_status.updating
+                                ? `Updating → ${a.update_status.latest_version}`
+                                : `Latest (${a.update_status.latest_version})`}
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <Badge variant={a.is_online ? 'success' : 'secondary'}>
                         {a.is_online ? 'Online' : 'Offline'}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right space-x-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleTriggerAgentUpdate(a.id, a.name)}
+                        title="立即触发该探针检查更新（有新版则安装并重启）"
+                        disabled={!a.is_online}
+                        className="text-emerald-400 hover:text-emerald-300 disabled:opacity-40"
+                      >
+                        <RefreshCw className="size-3.5" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
