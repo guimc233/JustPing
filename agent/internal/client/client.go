@@ -30,16 +30,19 @@ type Client struct {
 	queueMu     sync.Mutex
 	stopCh      chan struct{}
 	syncHook    func([]protocol.TargetConfig)
+	proxy       proxyManager
 }
 
 func NewClient(cfg Config, p *pinger.Pinger, syncHook func([]protocol.TargetConfig)) *Client {
-	return &Client{
+	c := &Client{
 		cfg:         cfg,
 		pinger:      p,
 		syncHook:    syncHook,
 		reportQueue: make([]protocol.PingReportPayload, 0, 500),
 		stopCh:      make(chan struct{}),
 	}
+	c.proxy.init(c.sendEnvelope)
+	return c
 }
 
 func (c *Client) Start(ctx context.Context) {

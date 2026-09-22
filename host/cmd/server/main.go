@@ -11,7 +11,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/guimc233/JustPing/host/internal/api"
 	"github.com/guimc233/JustPing/host/internal/db"
+	"github.com/guimc233/JustPing/host/internal/proxy"
 	"github.com/guimc233/JustPing/host/internal/ui"
+	"github.com/guimc233/JustPing/host/internal/ws"
 )
 
 func main() {
@@ -72,8 +74,21 @@ func main() {
 		port = "8080"
 	}
 
+	proxy.Default.SetBridge(ws.DefaultHub)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodConnect {
+			proxy.HandleConnect(w, req)
+			return
+		}
+		r.ServeHTTP(w, req)
+	})
 	log.Printf("JustPing Host is listening on :%s\n", port)
-	if err := r.Run(":" + port); err != nil {
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("Server exited with error: %v", err)
 	}
 }

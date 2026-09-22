@@ -9,6 +9,7 @@ import (
 
 	"github.com/guimc233/JustPing/host/internal/db"
 	"github.com/guimc233/JustPing/host/internal/model"
+	"github.com/guimc233/JustPing/host/internal/proxy"
 	"github.com/guimc233/JustPing/shared/protocol"
 )
 
@@ -45,32 +46,39 @@ func (h *Hub) Register(agentID string, ac *AgentConn) {
 // Unregister removes an agent connection only if it is the current registered instance
 func (h *Hub) Unregister(agentID string, ac *AgentConn) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	current, exists := h.agents[agentID]
 	if !exists || current != ac {
+		h.mu.Unlock()
 		return
 	}
-
 	delete(h.agents, agentID)
+	online := len(h.agents)
+	h.mu.Unlock()
+
 	ac.Close()
 	if ac.RemoteIP != "" {
-		log.Printf("[WS Hub] Agent %s (%s) disconnected. Online probes: %d\n", agentID, ac.RemoteIP, len(h.agents))
+		log.Printf("[WS Hub] Agent %s (%s) disconnected. Online probes: %d\n", agentID, ac.RemoteIP, online)
 	} else {
-		log.Printf("[WS Hub] Agent %s disconnected. Online probes: %d\n", agentID, len(h.agents))
+		log.Printf("[WS Hub] Agent %s disconnected. Online probes: %d\n", agentID, online)
 	}
 
 	_ = db.DB.Model(&model.Agent{}).Where("id = ?", agentID).Updates(map[string]any{
 		"is_online":    false,
 		"last_seen_at": time.Now(),
 	})
+	proxy.Default.DropAgent(agentID)
 }
 
 // Disconnect forcefully closes and removes the active connection for an agent (token rotation or deletion)
 func (h *Hub) Disconnect(agentID string) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	if ac, exists := h.agents[agentID]; exists {
+	ac, exists := h.agents[agentID]
+	if exists {
 		delete(h.agents, agentID)
+	}
+	h.mu.Unlock()
+
+	if exists {
 		ac.Close()
 		log.Printf("[WS Hub] Force disconnected agent %s\n", agentID)
 	}
@@ -78,6 +86,7 @@ func (h *Hub) Disconnect(agentID string) {
 		"is_online":    false,
 		"last_seen_at": time.Now(),
 	})
+	proxy.Default.DropAgent(agentID)
 }
 
 // SendToAgent sends a typed envelope safely without panicking on closed channel

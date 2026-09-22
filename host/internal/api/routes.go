@@ -55,6 +55,10 @@ func RegisterRoutes(r *gin.Engine) {
 		admin.PUT("/agents/:id", adminUpdateAgent)
 		admin.DELETE("/agents/:id", adminDeleteAgent)
 
+		admin.POST("/proxy/sessions", adminCreateProxySession)
+		admin.GET("/proxy/sessions", adminListProxySessions)
+		admin.DELETE("/proxy/sessions/:id", adminRevokeProxySession)
+
 		// Email Whitelist
 		admin.GET("/whitelist", adminListWhitelist)
 		admin.POST("/whitelist", adminCreateWhitelist)

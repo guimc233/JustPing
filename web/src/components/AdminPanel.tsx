@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -18,11 +18,82 @@ import {
   ShieldCheck,
   KeyRound,
   Route,
+  Globe,
   X,
 } from 'lucide-react'
 
 interface AdminPanelProps {
   currentUser: any
+}
+
+interface ProxyProbe {
+  id: string
+  name: string
+}
+
+interface ProxyCredential {
+  id: string
+  agent_id: string
+  agent_name: string
+  username: string
+  expires_at: string
+  ttl_sec: number
+  password?: string
+  proxy_url?: string
+}
+
+function parseProxyCredential(value: unknown): ProxyCredential | null {
+  if (typeof value !== 'object' || value === null) return null
+  if (
+    !('id' in value) ||
+    !('agent_id' in value) ||
+    !('agent_name' in value) ||
+    !('username' in value) ||
+    !('expires_at' in value) ||
+    !('ttl_sec' in value)
+  ) {
+    return null
+  }
+  const { id, agent_id, agent_name, username, expires_at, ttl_sec } = value
+  if (
+    typeof id !== 'string' ||
+    typeof agent_id !== 'string' ||
+    typeof agent_name !== 'string' ||
+    typeof username !== 'string' ||
+    typeof expires_at !== 'string' ||
+    typeof ttl_sec !== 'number'
+  ) {
+    return null
+  }
+  const credential: ProxyCredential = {
+    id,
+    agent_id,
+    agent_name,
+    username,
+    expires_at,
+    ttl_sec,
+  }
+  if ('password' in value && typeof value.password === 'string') credential.password = value.password
+  if ('proxy_url' in value && typeof value.proxy_url === 'string') credential.proxy_url = value.proxy_url
+  return credential
+}
+
+function parseProxyCredentialList(value: unknown): ProxyCredential[] {
+  if (!Array.isArray(value)) return []
+  const credentials: ProxyCredential[] = []
+  for (const item of value) {
+    const credential = parseProxyCredential(item)
+    if (credential) credentials.push(credential)
+  }
+  return credentials
+}
+
+async function readProxyError(res: Response, fallback: string): Promise<string> {
+  const body: unknown = await res.json().catch(() => null)
+  if (typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string' && body.error !== '') {
+    return body.error
+  }
+  return fallback
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
@@ -48,6 +119,96 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   const [copiedCmd, setCopiedCmd] = useState(false)
   const [editingAgentRoutes, setEditingAgentRoutes] = useState<any>(null)
   const [agentRouteDisabledMap, setAgentRouteDisabledMap] = useState<{ [targetId: string]: boolean }>({})
+  const [proxyAgent, setProxyAgent] = useState<ProxyProbe | null>(null)
+  const [proxyIssued, setProxyIssued] = useState<ProxyCredential | null>(null)
+  const [proxySessions, setProxySessions] = useState<ProxyCredential[]>([])
+  const [proxyError, setProxyError] = useState('')
+  const [proxyBusy, setProxyBusy] = useState(false)
+  const [copiedProxy, setCopiedProxy] = useState('')
+  const proxyReqGen = useRef(0)
+  const proxyAbort = useRef<AbortController | null>(null)
+
+  const loadProxySessions = async () => {
+    const res = await fetch('/api/admin/proxy/sessions')
+    if (!res.ok) return
+    setProxySessions(parseProxyCredentialList(await res.json()))
+  }
+
+  const invalidateProxyRequest = () => {
+    proxyAbort.current?.abort()
+    proxyAbort.current = null
+    proxyReqGen.current += 1
+    setProxyBusy(false)
+  }
+
+  const openProxyModal = async (agent: ProxyProbe) => {
+    invalidateProxyRequest()
+    setProxyAgent(agent)
+    setProxyIssued(null)
+    setProxyError('')
+    setCopiedProxy('')
+    await loadProxySessions()
+  }
+
+  const closeProxyModal = () => {
+    invalidateProxyRequest()
+    setProxyAgent(null)
+  }
+
+  const issueProxy = async () => {
+    if (!proxyAgent) return
+    const agentID = proxyAgent.id
+    proxyAbort.current?.abort()
+    const controller = new AbortController()
+    proxyAbort.current = controller
+    const generation = ++proxyReqGen.current
+    setProxyBusy(true)
+    setProxyError('')
+    try {
+      const res = await fetch('/api/admin/proxy/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentID }),
+        signal: controller.signal,
+      })
+      if (generation !== proxyReqGen.current) return
+      if (res.ok) {
+        const issued = parseProxyCredential(await res.json())
+        if (generation !== proxyReqGen.current) return
+        if (!issued) {
+          setProxyError('Failed to read proxy credential')
+          return
+        }
+        setProxyIssued(issued)
+        loadProxySessions()
+      } else {
+        setProxyError(await readProxyError(res, 'Failed to issue proxy credential'))
+      }
+    } catch (err) {
+      if (generation !== proxyReqGen.current) return
+      if (err instanceof Error && err.name === 'AbortError') return
+      setProxyError('Failed to issue proxy credential')
+    } finally {
+      if (generation === proxyReqGen.current) setProxyBusy(false)
+    }
+  }
+
+  const revokeProxy = async (id: string) => {
+    const res = await fetch(`/api/admin/proxy/sessions/${id}`, { method: 'DELETE' })
+    if (!res.ok) return
+    if (proxyIssued?.id === id) setProxyIssued(null)
+    loadProxySessions()
+  }
+
+  const copyProxyValue = async (label: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopiedProxy(label)
+      setTimeout(() => setCopiedProxy(''), 2000)
+    } catch {
+      setProxyError('Failed to copy proxy credential')
+    }
+  }
 
   // Whitelist state
   const [whitelist, setWhitelist] = useState<any[]>([])
@@ -546,6 +707,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                       <Button
                         variant="ghost"
                         size="icon"
+                        onClick={() => openProxyModal(a)}
+                        title="签发 10 分钟 HTTPS 代理，流量从该探针出口"
+                        disabled={!a.is_online}
+                        className="text-sky-400 hover:text-sky-300 disabled:opacity-40"
+                      >
+                        <Globe className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={() => handleRotateToken(a.id, a.name)}
                         title="Rotate Token"
                         className="text-amber-400 hover:text-amber-300"
@@ -857,6 +1028,70 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
               <Button size="sm" onClick={handleSaveAgentRouteOverrides}>
                 Save Overrides
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {proxyAgent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-lg rounded-xl border border-border bg-background p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-2">
+                <Globe className="size-5 text-sky-400" />
+                <h3 className="text-base font-bold">
+                  HTTPS Proxy: <span className="text-primary">{proxyAgent.name}</span>
+                </h3>
+              </div>
+              <Button variant="ghost" size="icon" onClick={closeProxyModal} className="size-7">
+                <X className="size-4" />
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              登录管理端后签发账号密码，有效期 10 分钟。把地址设为 <code>https_proxy</code> 后，HTTPS
+              CONNECT 从这台探针出口。密码只显示这一次。探针需升级到支持代理转发的版本。
+            </p>
+            <Button size="sm" onClick={issueProxy} disabled={proxyBusy}>
+              {proxyBusy ? '签发中…' : '签发 10 分钟账号'}
+            </Button>
+            {proxyError && <p className="text-xs text-destructive">{proxyError}</p>}
+            {proxyIssued?.password && proxyIssued.proxy_url && (
+              <div className="space-y-2 rounded-lg border border-primary/30 bg-muted/20 p-3">
+                <div className="text-[11px] text-muted-foreground">到期 {proxyIssued.expires_at}</div>
+                <div className="font-mono text-xs">用户名 {proxyIssued.username}</div>
+                <div className="font-mono text-xs break-all">密码 {proxyIssued.password}</div>
+                <div className="relative">
+                  <pre className="overflow-x-auto rounded bg-zinc-950 p-2.5 pr-10 font-mono text-[11px] text-emerald-400">
+                    {proxyIssued.proxy_url}
+                  </pre>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="absolute right-2 top-2 size-7 p-0"
+                    onClick={() => copyProxyValue('url', proxyIssued.proxy_url || '')}
+                  >
+                    {copiedProxy === 'url' ? <Check className="size-3.5 text-emerald-400" /> : <Copy className="size-3.5" />}
+                  </Button>
+                </div>
+              </div>
+            )}
+            <div className="space-y-2">
+              <div className="text-xs font-semibold">有效凭证</div>
+              {proxySessions.filter((item) => item.agent_id === proxyAgent.id).length === 0 ? (
+                <div className="text-xs text-muted-foreground">没有未过期的凭证</div>
+              ) : (
+                proxySessions
+                  .filter((item) => item.agent_id === proxyAgent.id)
+                  .map((item) => (
+                    <div key={item.id} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="font-mono">{item.username}</span>
+                      <span className="text-muted-foreground">{item.expires_at}</span>
+                      <Button variant="ghost" size="sm" onClick={() => revokeProxy(item.id)}>
+                        吊销
+                      </Button>
+                    </div>
+                  ))
+              )}
             </div>
           </div>
         </div>
