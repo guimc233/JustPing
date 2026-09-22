@@ -285,7 +285,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
     const min = featureMinVersion(key)
     const name = featureDefs.find((f) => f.key === key)?.name || key
     return min
-      ? `${base}\n\n⚠ ${name} 需探针 v${min}+，当前 ${formatVersion(agent.version, '未知')}，请先触发更新`
+      ? `${base}\n\n⚠ ${name} 需探针 ${formatVersion(min)}+，当前 ${formatVersion(agent.version, '未知')}，请先触发更新`
       : `${base}\n\n⚠ 当前探针版本不支持 ${name}`
   }
 
@@ -296,7 +296,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
       .concat(
         keys.map((key) => {
           const def = featureDefs.find((f) => f.key === key)
-          return def ? `• ${def.name}（需 v${def.min_version}+）` : `• ${key}`
+          return def ? `• ${def.name}（需 ${formatVersion(def.min_version)}+）` : `• ${key}`
         })
       )
       .join('\n')
