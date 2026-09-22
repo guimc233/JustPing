@@ -83,7 +83,12 @@ func main() {
 		r.ServeHTTP(w, req)
 	})
 	log.Printf("JustPing Host is listening on :%s\n", port)
-	if err := http.ListenAndServe(":"+port, handler); err != nil {
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatalf("Server exited with error: %v", err)
 	}
 }

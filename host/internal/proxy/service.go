@@ -20,6 +20,9 @@ const (
 	inboundQueue         = 32
 )
 
+// inboundWait is how long one probe chunk may wait for a slow client before the tunnel closes.
+var inboundWait = 5 * time.Second
+
 // Bridge is the host path to a connected probe.
 type Bridge interface {
 	Online(agentID string) bool
@@ -36,15 +39,19 @@ type tunnel struct {
 	once      sync.Once
 }
 
-func newTunnel(agentID, sessionID string) *tunnel {
+func newTunnel(agentID, sessionID string) (*tunnel, error) {
+	id, err := randomHex(16)
+	if err != nil {
+		return nil, err
+	}
 	return &tunnel{
-		id:        randomHex(16),
+		id:        id,
 		agentID:   agentID,
 		sessionID: sessionID,
 		opened:    make(chan protocol.ProxyOpenResultPayload, 1),
 		inbound:   make(chan []byte, inboundQueue),
 		done:      make(chan struct{}),
-	}
+	}, nil
 }
 
 func (t *tunnel) close() {
@@ -109,19 +116,22 @@ func (s *Service) HandleAgent(agentID string, env protocol.Envelope) {
 		if decodePayload(env.Payload, &msg) != nil || msg.TunnelID == "" || msg.Data == "" {
 			return
 		}
-		raw, err := base64.StdEncoding.DecodeString(msg.Data)
-		if err != nil || len(raw) == 0 || len(raw) > proxyChunkSize*4 {
-			s.finish(msg.TunnelID, "bad payload", true)
-			return
-		}
 		t := s.tunnel(msg.TunnelID)
 		if t == nil || t.agentID != agentID {
 			return
 		}
+		raw, err := base64.StdEncoding.DecodeString(msg.Data)
+		if err != nil || len(raw) == 0 || len(raw) > proxyChunkSize*4 {
+			s.finish(t.id, "bad payload", true)
+			return
+		}
+		timer := time.NewTimer(inboundWait)
 		select {
 		case <-t.done:
+			timer.Stop()
 		case t.inbound <- raw:
-		default:
+			timer.Stop()
+		case <-timer.C:
 			s.finish(t.id, "slow consumer", true)
 		}
 	case protocol.TypeProxyClose:
@@ -220,7 +230,10 @@ func (s *Service) bridgeSend(agentID string, msgType protocol.MessageType, paylo
 
 // openTunnel asks the probe to dial and waits until the dial succeeds or fails.
 func (s *Service) openTunnel(sess *Session, host string, port int) (*tunnel, error) {
-	t := newTunnel(sess.AgentID, sess.ID)
+	t, err := newTunnel(sess.AgentID, sess.ID)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.addTunnel(t); err != nil {
 		return nil, err
 	}
@@ -263,11 +276,10 @@ func (s *Service) pump(client net.Conn, reader io.Reader, t *tunnel, deadline ti
 	defer client.Close()
 	ctxDone := time.After(time.Until(deadline))
 	stop := make(chan struct{})
+	// Do not close the client on t.done. Bytes already queued still have to be written.
 	go func() {
 		select {
 		case <-ctxDone:
-			_ = client.Close()
-		case <-t.done:
 			_ = client.Close()
 		case <-stop:
 		}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -125,6 +125,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   const [proxyError, setProxyError] = useState('')
   const [proxyBusy, setProxyBusy] = useState(false)
   const [copiedProxy, setCopiedProxy] = useState('')
+  const proxyReqGen = useRef(0)
+  const proxyAbort = useRef<AbortController | null>(null)
 
   const loadProxySessions = async () => {
     const res = await fetch('/api/admin/proxy/sessions')
@@ -132,7 +134,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
     setProxySessions(parseProxyCredentialList(await res.json()))
   }
 
+  const invalidateProxyRequest = () => {
+    proxyAbort.current?.abort()
+    proxyAbort.current = null
+    proxyReqGen.current += 1
+    setProxyBusy(false)
+  }
+
   const openProxyModal = async (agent: ProxyProbe) => {
+    invalidateProxyRequest()
     setProxyAgent(agent)
     setProxyIssued(null)
     setProxyError('')
@@ -140,26 +150,46 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
     await loadProxySessions()
   }
 
+  const closeProxyModal = () => {
+    invalidateProxyRequest()
+    setProxyAgent(null)
+  }
+
   const issueProxy = async () => {
     if (!proxyAgent) return
+    const agentID = proxyAgent.id
+    proxyAbort.current?.abort()
+    const controller = new AbortController()
+    proxyAbort.current = controller
+    const generation = ++proxyReqGen.current
     setProxyBusy(true)
     setProxyError('')
-    const res = await fetch('/api/admin/proxy/sessions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agent_id: proxyAgent.id }),
-    })
-    setProxyBusy(false)
-    if (res.ok) {
-      const issued = parseProxyCredential(await res.json())
-      if (!issued) {
-        setProxyError('Failed to read proxy credential')
-        return
+    try {
+      const res = await fetch('/api/admin/proxy/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentID }),
+        signal: controller.signal,
+      })
+      if (generation !== proxyReqGen.current) return
+      if (res.ok) {
+        const issued = parseProxyCredential(await res.json())
+        if (generation !== proxyReqGen.current) return
+        if (!issued) {
+          setProxyError('Failed to read proxy credential')
+          return
+        }
+        setProxyIssued(issued)
+        loadProxySessions()
+      } else {
+        setProxyError(await readProxyError(res, 'Failed to issue proxy credential'))
       }
-      setProxyIssued(issued)
-      loadProxySessions()
-    } else {
-      setProxyError(await readProxyError(res, 'Failed to issue proxy credential'))
+    } catch (err) {
+      if (generation !== proxyReqGen.current) return
+      if (err instanceof Error && err.name === 'AbortError') return
+      setProxyError('Failed to issue proxy credential')
+    } finally {
+      if (generation === proxyReqGen.current) setProxyBusy(false)
     }
   }
 
@@ -171,9 +201,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   }
 
   const copyProxyValue = async (label: string, value: string) => {
-    await navigator.clipboard.writeText(value)
-    setCopiedProxy(label)
-    setTimeout(() => setCopiedProxy(''), 2000)
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopiedProxy(label)
+      setTimeout(() => setCopiedProxy(''), 2000)
+    } catch {
+      setProxyError('Failed to copy proxy credential')
+    }
   }
 
   // Whitelist state
@@ -1009,7 +1043,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                   HTTPS Proxy: <span className="text-primary">{proxyAgent.name}</span>
                 </h3>
               </div>
-              <Button variant="ghost" size="icon" onClick={() => setProxyAgent(null)} className="size-7">
+              <Button variant="ghost" size="icon" onClick={closeProxyModal} className="size-7">
                 <X className="size-4" />
               </Button>
             </div>

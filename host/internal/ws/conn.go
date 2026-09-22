@@ -53,6 +53,8 @@ func (ac *AgentConn) SafeSend(msg []byte) error {
 // SendWait blocks until the write pump accepts msg, the connection closes, or timeout elapses.
 func (ac *AgentConn) SendWait(timeout time.Duration, msg []byte) error {
 	deadline := time.Now().Add(timeout)
+	backoff := 2 * time.Millisecond
+	const maxBackoff = 32 * time.Millisecond
 	for {
 		ac.closeMu.Lock()
 		if ac.closed {
@@ -66,10 +68,22 @@ func (ac *AgentConn) SendWait(timeout time.Duration, msg []byte) error {
 		default:
 		}
 		ac.closeMu.Unlock()
-		if !time.Now().Before(deadline) {
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
 			return errors.New("send timeout")
 		}
-		time.Sleep(2 * time.Millisecond)
+		sleep := backoff
+		if sleep > remaining {
+			sleep = remaining
+		}
+		time.Sleep(sleep)
+		if backoff < maxBackoff {
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
 	}
 }
 

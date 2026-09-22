@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -80,5 +81,50 @@ func TestParseBasicAuthAndConnectTarget(t *testing.T) {
 	}
 	if _, _, err := ParseConnectTarget("example.com"); err == nil {
 		t.Fatal("missing port should fail")
+	}
+}
+
+func TestIssueDoesNotOverwriteOnUsernameCollision(t *testing.T) {
+	store := NewStore()
+	orig := readRandom
+	t.Cleanup(func() { readRandom = orig })
+	readRandom = func(b []byte) (int, error) {
+		for i := range b {
+			b[i] = 0xAB
+		}
+		if len(b) == 16 {
+			b[0] = byte(len(store.byID) + 1)
+		}
+		return len(b), nil
+	}
+
+	issued, err := store.Issue("agent-1", "Tokyo", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Issue("agent-2", "Osaka", 8); err == nil {
+		t.Fatal("expected username collision to fail")
+	}
+	got, err := store.Authenticate(issued.Username, issued.Password)
+	if err != nil || got.AgentID != "agent-1" || got.ID != issued.ID {
+		t.Fatalf("first session clobbered: %v %#v", err, got)
+	}
+	if len(store.byID) != 1 || len(store.byUser) != 1 {
+		t.Fatalf("maps = %d ids %d users", len(store.byID), len(store.byUser))
+	}
+}
+
+func TestIssueFailsWhenRandomFails(t *testing.T) {
+	store := NewStore()
+	orig := readRandom
+	t.Cleanup(func() { readRandom = orig })
+	readRandom = func([]byte) (int, error) {
+		return 0, errors.New("rng unavailable")
+	}
+	if _, err := store.Issue("agent-1", "Tokyo", 7); err == nil {
+		t.Fatal("expected rng error")
+	}
+	if len(store.byID) != 0 || len(store.byUser) != 0 {
+		t.Fatal("failed issue stored a session")
 	}
 }

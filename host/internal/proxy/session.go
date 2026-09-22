@@ -65,12 +65,15 @@ func (s *Store) Issue(agentID, agentName string, userID uint) (IssuedSession, er
 	password := hex.EncodeToString(passRaw)
 	sum := sha256.Sum256([]byte(password))
 
+	id, err := randomHex(16)
+	if err != nil {
+		return IssuedSession{}, err
+	}
 	now := s.now()
 	sess := &Session{
-		ID:           randomHex(16),
+		ID:           id,
 		AgentID:      agentID,
 		AgentName:    agentName,
-		Username:     "jp" + randomHex(6),
 		CreatedBy:    userID,
 		CreatedAt:    now,
 		ExpiresAt:    now.Add(SessionTTL),
@@ -80,11 +83,25 @@ func (s *Store) Issue(agentID, agentName string, userID uint) (IssuedSession, er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.purgeLocked(now)
+	if _, exists := s.byID[sess.ID]; exists {
+		return IssuedSession{}, errors.New("failed to allocate proxy session")
+	}
+	allocated := false
 	for range 5 {
-		if _, exists := s.byUser[sess.Username]; !exists {
-			break
+		suffix, err := randomHex(6)
+		if err != nil {
+			return IssuedSession{}, err
 		}
-		sess.Username = "jp" + randomHex(6)
+		username := "jp" + suffix
+		if _, exists := s.byUser[username]; exists {
+			continue
+		}
+		sess.Username = username
+		allocated = true
+		break
+	}
+	if !allocated {
+		return IssuedSession{}, errors.New("failed to allocate proxy username")
 	}
 	s.byID[sess.ID] = sess
 	s.byUser[sess.Username] = sess
@@ -154,10 +171,15 @@ func (s *Store) purgeLocked(now time.Time) {
 	}
 }
 
-func randomHex(n int) string {
+// readRandom is crypto/rand.Read unless a test replaces it.
+var readRandom = rand.Read
+
+func randomHex(n int) (string, error) {
 	b := make([]byte, n)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := readRandom(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // ParseBasicAuth parses a Proxy-Authorization Basic header.

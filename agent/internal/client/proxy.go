@@ -11,18 +11,28 @@ import (
 	"github.com/guimc233/JustPing/shared/protocol"
 )
 
-const proxyChunkSize = 16 * 1024
+const (
+	proxyChunkSize    = 16 * 1024
+	proxyWriteQueue   = 32
+	proxyWriteTimeout = 10 * time.Second
+)
 
 type proxyTunnel struct {
 	mu     sync.Mutex
 	conn   net.Conn
 	cancel context.CancelFunc
+	writes chan []byte
 	closed bool
 }
 
 func (t *proxyTunnel) close() {
 	t.mu.Lock()
+	if t.closed {
+		t.mu.Unlock()
+		return
+	}
 	t.closed = true
+	close(t.writes)
 	cancel := t.cancel
 	conn := t.conn
 	t.mu.Unlock()
@@ -42,6 +52,20 @@ func (t *proxyTunnel) setConn(conn net.Conn) bool {
 	}
 	t.conn = conn
 	return true
+}
+
+func (t *proxyTunnel) enqueue(data []byte) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.closed {
+		return false
+	}
+	select {
+	case t.writes <- data:
+		return true
+	default:
+		return false
+	}
 }
 
 type proxyManager struct {
@@ -102,11 +126,24 @@ func (m *proxyManager) open(req protocol.ProxyOpenPayload) {
 		})
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-	tab := &proxyTunnel{cancel: cancel}
+
 	m.mu.Lock()
 	if m.tabs == nil {
 		m.tabs = make(map[string]*proxyTunnel)
+	}
+	if _, exists := m.tabs[req.TunnelID]; exists {
+		m.mu.Unlock()
+		_ = m.send(protocol.TypeProxyOpenResult, protocol.ProxyOpenResultPayload{
+			TunnelID: req.TunnelID,
+			OK:       false,
+			Error:    "tunnel already open",
+		})
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	tab := &proxyTunnel{
+		cancel: cancel,
+		writes: make(chan []byte, proxyWriteQueue),
 	}
 	m.tabs[req.TunnelID] = tab
 	m.mu.Unlock()
@@ -115,7 +152,7 @@ func (m *proxyManager) open(req protocol.ProxyOpenPayload) {
 		addr := net.JoinHostPort(req.Host, itoa(req.Port))
 		conn, err := m.dial(ctx, addr)
 		if err != nil {
-			m.drop(req.TunnelID, false)
+			m.dropIf(req.TunnelID, tab, false)
 			_ = m.send(protocol.TypeProxyOpenResult, protocol.ProxyOpenResultPayload{
 				TunnelID: req.TunnelID,
 				OK:       false,
@@ -127,18 +164,19 @@ func (m *proxyManager) open(req protocol.ProxyOpenPayload) {
 			_ = conn.Close()
 			return
 		}
+		go m.writeLoop(req.TunnelID, tab, conn)
 		if err := m.send(protocol.TypeProxyOpenResult, protocol.ProxyOpenResultPayload{
 			TunnelID: req.TunnelID,
 			OK:       true,
 		}); err != nil {
-			m.drop(req.TunnelID, false)
+			m.dropIf(req.TunnelID, tab, false)
 			return
 		}
-		m.readLoop(req.TunnelID, conn)
+		m.readLoop(req.TunnelID, tab, conn)
 	}()
 }
 
-func (m *proxyManager) readLoop(id string, conn net.Conn) {
+func (m *proxyManager) readLoop(id string, tab *proxyTunnel, conn net.Conn) {
 	buf := make([]byte, proxyChunkSize)
 	for {
 		n, err := conn.Read(buf)
@@ -148,12 +186,22 @@ func (m *proxyManager) readLoop(id string, conn net.Conn) {
 				Data:     base64.StdEncoding.EncodeToString(buf[:n]),
 			}
 			if sendErr := m.send(protocol.TypeProxyData, payload); sendErr != nil {
-				m.drop(id, false)
+				m.dropIf(id, tab, false)
 				return
 			}
 		}
 		if err != nil {
-			m.drop(id, true)
+			m.dropIf(id, tab, true)
+			return
+		}
+	}
+}
+
+func (m *proxyManager) writeLoop(id string, tab *proxyTunnel, conn net.Conn) {
+	for data := range tab.writes {
+		_ = conn.SetWriteDeadline(time.Now().Add(proxyWriteTimeout))
+		if _, err := conn.Write(data); err != nil {
+			m.dropIf(id, tab, true)
 			return
 		}
 	}
@@ -166,28 +214,24 @@ func (m *proxyManager) write(id string, data []byte) {
 	if tab == nil {
 		return
 	}
-	tab.mu.Lock()
-	conn := tab.conn
-	tab.mu.Unlock()
-	if conn == nil {
-		return
-	}
-	_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if _, err := conn.Write(data); err != nil {
-		m.drop(id, true)
+	if !tab.enqueue(data) {
+		m.dropIf(id, tab, true)
 	}
 }
 
 func (m *proxyManager) drop(id string, notify bool) {
+	m.dropIf(id, nil, notify)
+}
+
+func (m *proxyManager) dropIf(id string, expect *proxyTunnel, notify bool) {
 	m.mu.Lock()
 	tab := m.tabs[id]
-	if tab != nil {
-		delete(m.tabs, id)
-	}
-	m.mu.Unlock()
-	if tab == nil {
+	if tab == nil || (expect != nil && tab != expect) {
+		m.mu.Unlock()
 		return
 	}
+	delete(m.tabs, id)
+	m.mu.Unlock()
 	tab.close()
 	if notify {
 		_ = m.send(protocol.TypeProxyClose, protocol.ProxyClosePayload{TunnelID: id})

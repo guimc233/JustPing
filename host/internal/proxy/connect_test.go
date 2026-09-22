@@ -193,3 +193,57 @@ func TestConnectRequiresCredential(t *testing.T) {
 		t.Fatal("missing Proxy-Authenticate")
 	}
 }
+
+func TestForeignBadPayloadDoesNotCloseTunnel(t *testing.T) {
+	svc := NewService()
+	tun, err := newTunnel("agent-a", "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.addTunnel(tun); err != nil {
+		t.Fatal(err)
+	}
+	bad := protocol.Envelope{
+		Type:    protocol.TypeProxyData,
+		Payload: protocol.ProxyDataPayload{TunnelID: tun.id, Data: "%%%"},
+	}
+	svc.HandleAgent("agent-b", bad)
+	if svc.tunnel(tun.id) == nil {
+		t.Fatal("foreign bad payload closed tunnel")
+	}
+	svc.HandleAgent("agent-a", bad)
+	if svc.tunnel(tun.id) != nil {
+		t.Fatal("owner bad payload should close tunnel")
+	}
+}
+
+func TestInboundBackpressureWaitsBeforeDrop(t *testing.T) {
+	svc := NewService()
+	tun, err := newTunnel("agent-a", "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.addTunnel(tun); err != nil {
+		t.Fatal(err)
+	}
+	orig := inboundWait
+	inboundWait = 200 * time.Millisecond
+	t.Cleanup(func() { inboundWait = orig })
+
+	payload := base64.StdEncoding.EncodeToString([]byte("x"))
+	env := protocol.Envelope{
+		Type:    protocol.TypeProxyData,
+		Payload: protocol.ProxyDataPayload{TunnelID: tun.id, Data: payload},
+	}
+	for range inboundQueue {
+		svc.HandleAgent("agent-a", env)
+	}
+	start := time.Now()
+	svc.HandleAgent("agent-a", env)
+	if time.Since(start) < 150*time.Millisecond {
+		t.Fatal("full inbound queue closed the tunnel without waiting")
+	}
+	if svc.tunnel(tun.id) != nil {
+		t.Fatal("tunnel should close after the inbound wait")
+	}
+}
