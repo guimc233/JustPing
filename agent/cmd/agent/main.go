@@ -21,7 +21,10 @@ import (
 )
 
 var (
-	Version   = "1.0.11"
+	// Version is overridden at build time with -X main.Version=<release tag>.
+	// Keep the fallback in step with the release so locally built probes report
+	// a version that matches the capabilities they actually have.
+	Version   = "1.2.0"
 	GitCommit = "unknown"
 )
 

@@ -57,6 +57,9 @@ func RegisterRoutes(r *gin.Engine) {
 		admin.PUT("/agents/:id", adminUpdateAgent)
 		admin.DELETE("/agents/:id", adminDeleteAgent)
 
+		// Capability registry (feature -> first supporting probe version)
+		admin.GET("/features", adminListFeatures)
+
 		admin.POST("/proxy/sessions", adminCreateProxySession)
 		admin.GET("/proxy/sessions", adminListProxySessions)
 		admin.DELETE("/proxy/sessions/:id", adminRevokeProxySession)

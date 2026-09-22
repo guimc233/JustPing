@@ -68,6 +68,11 @@ type Agent struct {
 	// UpdateStatus is runtime-only state reported by the probe after a
 	// Host-triggered update check. It is never persisted.
 	UpdateStatus *AgentUpdateStatus `gorm:"-" json:"update_status,omitempty"`
+
+	// UnsupportedFeatures lists the capability keys this probe's reported
+	// Version is too old to implement. It is derived at read time from the
+	// feature registry and never persisted.
+	UnsupportedFeatures []string `gorm:"-" json:"unsupported_features"`
 }
 
 // AgentUpdateStatus describes the outcome of the most recent Host-triggered

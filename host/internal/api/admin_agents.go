@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/guimc233/JustPing/host/internal/db"
+	"github.com/guimc233/JustPing/host/internal/feature"
 	"github.com/guimc233/JustPing/host/internal/model"
 	"github.com/guimc233/JustPing/host/internal/ws"
 )
@@ -26,6 +27,7 @@ func adminListAgents(c *gin.Context) {
 
 	statuses := ws.DefaultHub.UpdateStatuses()
 	for i := range agents {
+		agents[i].UnsupportedFeatures = feature.Unsupported(agents[i].Version)
 		if status, ok := statuses[agents[i].ID]; ok {
 			copied := status
 			agents[i].UpdateStatus = &copied
@@ -33,6 +35,12 @@ func adminListAgents(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, agents)
+}
+
+// adminListFeatures reports the tracked probe capabilities and the first probe
+// release supporting each one, so the UI can explain why a control is disabled.
+func adminListFeatures(c *gin.Context) {
+	c.JSON(http.StatusOK, feature.All())
 }
 
 func adminCreateAgent(c *gin.Context) {

@@ -43,6 +43,30 @@ interface ProxyCredential {
   proxy_url?: string
 }
 
+// Mirrors host/internal/feature/feature.go: each capability plus the first probe
+// release that implemented it.
+interface FeatureDefinition {
+  key: string
+  name: string
+  min_version: string
+}
+
+function parseFeatureDefinitions(value: unknown): FeatureDefinition[] {
+  if (!Array.isArray(value)) return []
+  const defs: FeatureDefinition[] = []
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) continue
+    const { key, name, min_version } = item as Record<string, unknown>
+    if (typeof key !== 'string' || typeof name !== 'string' || typeof min_version !== 'string') continue
+    defs.push({ key, name, min_version })
+  }
+  return defs
+}
+
+const FEATURE_PROXY = 'proxy'
+const FEATURE_ROUTE_OVERRIDE = 'route_override'
+const FEATURE_UPDATE_CHECK = 'update_check'
+
 function parseProxyCredential(value: unknown): ProxyCredential | null {
   if (typeof value !== 'object' || value === null) return null
   if (
@@ -114,6 +138,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
 
   // Agents state
   const [agents, setAgents] = useState<any[]>([])
+  const [featureDefs, setFeatureDefs] = useState<FeatureDefinition[]>([])
   const [showAddAgent, setShowAddAgent] = useState(false)
   const [newAgentName, setNewAgentName] = useState('')
   const [enrollResult, setEnrollResult] = useState<any>(null)
@@ -233,6 +258,40 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
     if (res.ok) setAgents(await res.json())
   }
 
+  const loadFeatureDefs = async () => {
+    const res = await fetch('/api/admin/features')
+    if (res.ok) setFeatureDefs(parseFeatureDefinitions(await res.json()))
+  }
+
+  const featureMinVersion = (key: string) => featureDefs.find((f) => f.key === key)?.min_version
+
+  // The Host reports which tracked capabilities a probe's build is too old for.
+  // A probe that never reported a version is assumed capable of everything.
+  const agentSupports = (agent: any, key: string) =>
+    !Array.isArray(agent?.unsupported_features) || !agent.unsupported_features.includes(key)
+
+  const gatedTitle = (agent: any, key: string, base: string) => {
+    if (agentSupports(agent, key)) return base
+    const min = featureMinVersion(key)
+    const name = featureDefs.find((f) => f.key === key)?.name || key
+    return min
+      ? `${base}\n\n⚠ ${name} 需探针 v${min}+，当前 v${agent.version || '未知'}，请先触发更新`
+      : `${base}\n\n⚠ 当前探针版本不支持 ${name}`
+  }
+
+  const unsupportedFeatureTitle = (agent: any) => {
+    const keys: string[] = Array.isArray(agent?.unsupported_features) ? agent.unsupported_features : []
+    if (keys.length === 0) return ''
+    return ['当前探针版本暂不支持以下功能：']
+      .concat(
+        keys.map((key) => {
+          const def = featureDefs.find((f) => f.key === key)
+          return def ? `• ${def.name}（需 v${def.min_version}+）` : `• ${key}`
+        })
+      )
+      .join('\n')
+  }
+
   // Probes answer an update check asynchronously (download + verify, then a possible
   // restart), so poll briefly after a trigger until the reported status shows up.
   const pollAgentUpdateStatus = () => {
@@ -262,6 +321,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   useEffect(() => {
     loadTargets()
     loadAgents()
+    loadFeatureDefs()
     loadWhitelist()
     if (isSuperadmin) loadSettings()
   }, [])
@@ -759,6 +819,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                                 : `Latest (${a.update_status.latest_version})`}
                           </Badge>
                         )}
+                        {Array.isArray(a.unsupported_features) && a.unsupported_features.length > 0 && (
+                          <Badge variant="warning" className="text-[10px]" title={unsupportedFeatureTitle(a)}>
+                            功能受限
+                          </Badge>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -771,8 +836,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                         variant="ghost"
                         size="icon"
                         onClick={() => handleTriggerAgentUpdate(a.id, a.name)}
-                        title="立即触发该探针检查更新（有新版则安装并重启）"
-                        disabled={!a.is_online}
+                        title={gatedTitle(a, FEATURE_UPDATE_CHECK, '立即触发该探针检查更新（有新版则安装并重启）')}
+                        disabled={!a.is_online || !agentSupports(a, FEATURE_UPDATE_CHECK)}
                         className="text-emerald-400 hover:text-emerald-300 disabled:opacity-40"
                       >
                         <RefreshCw className="size-3.5" />
@@ -781,8 +846,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                         variant="ghost"
                         size="icon"
                         onClick={() => handleOpenAgentRouteModal(a)}
-                        title="Route Trace Overrides (配置此节点对特定目标的路由检测)"
-                        className="text-primary hover:text-primary"
+                        title={gatedTitle(a, FEATURE_ROUTE_OVERRIDE, 'Route Trace Overrides (配置此节点对特定目标的路由检测)')}
+                        disabled={!agentSupports(a, FEATURE_ROUTE_OVERRIDE)}
+                        className="text-primary hover:text-primary disabled:opacity-40"
                       >
                         <Route className="size-3.5" />
                       </Button>
@@ -790,8 +856,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                         variant="ghost"
                         size="icon"
                         onClick={() => openProxyModal(a)}
-                        title="签发 10 分钟 HTTPS 代理，流量从该探针出口"
-                        disabled={!a.is_online}
+                        title={gatedTitle(a, FEATURE_PROXY, '签发 10 分钟 HTTPS 代理，流量从该探针出口')}
+                        disabled={!a.is_online || !agentSupports(a, FEATURE_PROXY)}
                         className="text-sky-400 hover:text-sky-300 disabled:opacity-40"
                       >
                         <Globe className="size-3.5" />
