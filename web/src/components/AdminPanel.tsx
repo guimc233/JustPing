@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   KeyRound,
   Route,
+  CirclePause,
   Globe,
   RefreshCw,
   Skull,
@@ -115,6 +116,62 @@ const FEATURE_PROXY = 'proxy'
 const FEATURE_ROUTE_OVERRIDE = 'route_override'
 const FEATURE_UPDATE_CHECK = 'update_check'
 
+// Per-probe, per-target test state. "paused" stops every test for that target on
+// that probe (the Host omits it from the target sync, so neither ICMP nor route
+// tracing runs); "route_off" keeps ICMP probing and only disables route tracing.
+type TargetOverrideState = 'normal' | 'route_off' | 'paused'
+
+const TARGET_OVERRIDE_OPTIONS: { id: TargetOverrideState; label: string; title: string }[] = [
+  { id: 'normal', label: '正常', title: '正常探测：ICMP 与路由追踪都执行' },
+  { id: 'route_off', label: '仅禁路由', title: '保留 ICMP 探测，只关闭路由追踪（需探针 1.0.10+）' },
+  { id: 'paused', label: '暂停全部', title: '暂停该目标在此节点上的全部探测：ICMP 与路由追踪都不再执行' },
+]
+
+function parseTargetIDList(raw: unknown): string[] {
+  if (typeof raw !== 'string' || raw === '') return []
+  return raw
+    .split(',')
+    .map((id) => id.trim())
+    .filter((id) => id !== '')
+}
+
+// Rebuilds the per-target state from the two override lists the Host stores.
+// A target in both lists is paused, because pausing suppresses route tracing too.
+function buildTargetOverrideMap(agent: any): { [targetId: string]: TargetOverrideState } {
+  const map: { [targetId: string]: TargetOverrideState } = {}
+  for (const id of parseTargetIDList(agent?.disabled_route_targets)) map[id] = 'route_off'
+  for (const id of parseTargetIDList(agent?.paused_targets)) map[id] = 'paused'
+  return map
+}
+
+function countPausedTargets(agent: any): number {
+  return parseTargetIDList(agent?.paused_targets).length
+}
+
+// Selected target IDs for one override state, in the order the operator set them.
+function selectedOverrideIDs(
+  map: { [targetId: string]: TargetOverrideState },
+  state: TargetOverrideState
+): string[] {
+  return Object.keys(map).filter((id) => map[id] === state)
+}
+
+// Probe name cell: flags how many targets have every test paused on this probe.
+const AgentNameCell: React.FC<{ agent: any }> = ({ agent }) => {
+  const paused = countPausedTargets(agent)
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <span>{agent.name}</span>
+      {paused > 0 && (
+        <Badge variant="warning" className="text-[10px]" title="该节点上已有目标被暂停全部探测">
+          <CirclePause className="size-3 mr-1" />
+          暂停 {paused} 项
+        </Badge>
+      )}
+    </div>
+  )
+}
+
 // Mirrors host/internal/feature ForceRestartMode: how the Host can force a probe
 // to restart so its start-up auto-updater picks up a release. "soft_exit" probes
 // exit on request (and are crashed if they do not); "legacy_crash" probes only
@@ -203,8 +260,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   const [newAgentName, setNewAgentName] = useState('')
   const [enrollResult, setEnrollResult] = useState<any>(null)
   const [copiedCmd, setCopiedCmd] = useState(false)
-  const [editingAgentRoutes, setEditingAgentRoutes] = useState<any>(null)
-  const [agentRouteDisabledMap, setAgentRouteDisabledMap] = useState<{ [targetId: string]: boolean }>({})
+  const [editingAgentOverrides, setEditingAgentOverrides] = useState<any>(null)
+  const [agentOverrideMap, setAgentOverrideMap] = useState<{ [targetId: string]: TargetOverrideState }>({})
   const [proxyAgent, setProxyAgent] = useState<ProxyProbe | null>(null)
   const [proxyIssued, setProxyIssued] = useState<ProxyCredential | null>(null)
   const [proxySessions, setProxySessions] = useState<ProxyCredential[]>([])
@@ -444,34 +501,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
     }
   }
 
-  const handleOpenAgentRouteModal = (agent: any) => {
-    const map: { [targetId: string]: boolean } = {}
-    if (agent.disabled_route_targets) {
-      agent.disabled_route_targets.split(',').forEach((id: string) => {
-        const trimmed = id.trim()
-        if (trimmed) map[trimmed] = true
-      })
-    }
-    setAgentRouteDisabledMap(map)
-    setEditingAgentRoutes(agent)
+  const handleOpenAgentOverrideModal = (agent: any) => {
+    setAgentOverrideMap(buildTargetOverrideMap(agent))
+    setEditingAgentOverrides(agent)
   }
 
-  const handleSaveAgentRouteOverrides = async () => {
-    if (!editingAgentRoutes) return
-    const disabledList = Object.keys(agentRouteDisabledMap).filter((id) => agentRouteDisabledMap[id])
-    const res = await fetch(`/api/admin/agents/${editingAgentRoutes.id}`, {
+  const handleSaveAgentOverrides = async () => {
+    if (!editingAgentOverrides) return
+    const paused: string[] = []
+    const routeOff: string[] = []
+    targets.forEach((tg) => {
+      const state = agentOverrideMap[tg.id] || 'normal'
+      if (state === 'paused') paused.push(tg.id)
+      else if (state === 'route_off') routeOff.push(tg.id)
+    })
+
+    const res = await fetch(`/api/admin/agents/${editingAgentOverrides.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        disabled_route_targets: disabledList.join(','),
+        disabled_route_targets: routeOff.join(','),
+        paused_targets: paused.join(','),
       }),
     })
     if (res.ok) {
-      setEditingAgentRoutes(null)
+      setEditingAgentOverrides(null)
       loadAgents()
     } else {
       const err = await res.json().catch(() => ({}))
-      alert(err.error || 'Failed to save route overrides')
+      alert(err.error || 'Failed to save test overrides')
     }
   }
 
@@ -948,7 +1006,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
               <TableBody>
                 {agents.map((a) => (
                   <TableRow key={a.id}>
-                    <TableCell className="font-semibold text-xs">{a.name}</TableCell>
+                    <TableCell className="font-semibold text-xs">
+                      <AgentNameCell agent={a} />
+                    </TableCell>
                     <TableCell className="font-mono text-xs">{a.public_ip || '—'}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {a.os || '—'} / {a.arch || '—'}
@@ -1012,10 +1072,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => handleOpenAgentRouteModal(a)}
-                        title={gatedTitle(a, FEATURE_ROUTE_OVERRIDE, 'Route Trace Overrides (配置此节点对特定目标的路由检测)')}
-                        disabled={!agentSupports(a, FEATURE_ROUTE_OVERRIDE)}
-                        className="text-primary hover:text-primary disabled:opacity-40"
+                        onClick={() => handleOpenAgentOverrideModal(a)}
+                        title={gatedTitle(
+                          a,
+                          FEATURE_ROUTE_OVERRIDE,
+                          '监测覆盖：可暂停该节点对特定目标的全部探测，或只关闭其路由追踪'
+                        )}
+                        className="text-primary hover:text-primary"
                       >
                         <Route className="size-3.5" />
                       </Button>
@@ -1262,21 +1325,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
         </Card>
       )}
 
-      {/* Agent Route Overrides Modal */}
-      {editingAgentRoutes && (
+      {/* Per-probe target test overrides modal */}
+      {editingAgentOverrides && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
           <div className="relative w-full max-w-lg rounded-xl border border-border bg-background p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center gap-2">
                 <Route className="size-5 text-primary" />
                 <h3 className="text-base font-bold">
-                  Route Trace Overrides: <span className="text-primary">{editingAgentRoutes.name}</span>
+                  Test Overrides: <span className="text-primary">{editingAgentOverrides.name}</span>
                 </h3>
               </div>
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => setEditingAgentRoutes(null)}
+                onClick={() => setEditingAgentOverrides(null)}
                 className="size-7"
               >
                 <X className="size-4" />
@@ -1284,65 +1347,85 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              勾选以下目标以<strong>关闭</strong>该探针节点对其的路由追踪检测。未勾选的目标将保持正常的 12 小时与突变触发检测。
+              为该节点上的每个目标选择检测方式：<strong>正常</strong> 全量探测；
+              <strong>仅禁路由</strong> 保留 ICMP、只关闭路由追踪；
+              <strong>暂停全部</strong> 暂停该目标在此节点上的 ICMP 与路由探测（不再上报数据）。
+              暂停只影响本节点，其他节点照常探测该目标。
             </p>
 
-            <div className="max-h-60 overflow-y-auto space-y-2 border border-border/80 rounded-lg p-3 bg-muted/20">
+            <div className="max-h-72 overflow-y-auto space-y-2 border border-border/80 rounded-lg p-3 bg-muted/20">
               {targets.length === 0 ? (
                 <div className="text-xs text-muted-foreground text-center py-4">暂无配置的目标</div>
               ) : (
                 targets.map((tg) => {
-                  const isDisabled = !!agentRouteDisabledMap[tg.id]
+                  const state = agentOverrideMap[tg.id] || 'normal'
+                  const routeSupported = agentSupports(editingAgentOverrides, FEATURE_ROUTE_OVERRIDE)
                   return (
-                    <label
+                    <div
                       key={tg.id}
-                      className={`flex items-center justify-between p-2 rounded-md border text-xs cursor-pointer transition ${
-                        isDisabled
-                          ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
-                          : 'border-border bg-card/60 text-foreground hover:bg-muted/40'
+                      className={`flex items-center justify-between gap-3 p-2 rounded-md border text-xs transition ${
+                        state === 'paused'
+                          ? 'border-amber-500/40 bg-amber-500/10'
+                          : state === 'route_off'
+                            ? 'border-zinc-600/60 bg-zinc-800/30'
+                            : 'border-border bg-card/60 hover:bg-muted/40'
                       }`}
                     >
-                      <div className="space-y-0.5">
-                        <div className="font-semibold">{tg.name}</div>
-                        <div className="text-[10px] text-muted-foreground font-mono">{tg.host}</div>
+                      <div className="min-w-0 space-y-0.5">
+                        <div className="truncate font-semibold">{tg.name}</div>
+                        <div className="truncate font-mono text-[10px] text-muted-foreground">{tg.host}</div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px]">
-                          {isDisabled ? (
-                            <span className="text-amber-400 font-medium">Route 已关闭</span>
-                          ) : (
-                            <span className="text-emerald-400">Route 正常开启</span>
-                          )}
-                        </span>
-                        <input
-                          type="checkbox"
-                          checked={isDisabled}
-                          onChange={(e) => {
-                            setAgentRouteDisabledMap({
-                              ...agentRouteDisabledMap,
-                              [tg.id]: e.target.checked,
-                            })
-                          }}
-                          className="size-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
-                        />
+                      <div className="flex shrink-0 items-center gap-1">
+                        {TARGET_OVERRIDE_OPTIONS.map((opt) => {
+                          const unsupported = opt.id === 'route_off' && !routeSupported
+                          const selected = state === opt.id
+                          const selectedClass =
+                            opt.id === 'paused'
+                              ? 'bg-amber-500/20 text-amber-200 border-amber-500/50'
+                              : opt.id === 'route_off'
+                                ? 'bg-zinc-700/60 text-zinc-200 border-zinc-600'
+                                : 'bg-primary/15 text-primary border-primary/40'
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              disabled={unsupported}
+                              title={
+                                unsupported
+                                  ? '该探针版本不支持单独关闭路由追踪，请先触发更新；仍可暂停全部探测'
+                                  : opt.title
+                              }
+                              onClick={() => setAgentOverrideMap({ ...agentOverrideMap, [tg.id]: opt.id })}
+                              className={`rounded border px-2 py-0.5 text-[10px] font-medium transition ${
+                                selected
+                                  ? selectedClass
+                                  : 'border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                              } ${unsupported ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}`}
+                            >
+                              {opt.label}
+                            </button>
+                          )
+                        })}
                       </div>
-                    </label>
+                    </div>
                   )
                 })
               )}
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-border/60">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setEditingAgentRoutes(null)}
-              >
-                Cancel
-              </Button>
-              <Button size="sm" onClick={handleSaveAgentRouteOverrides}>
-                Save Overrides
-              </Button>
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60">
+              <span className="text-[11px] text-muted-foreground">
+                暂停 {selectedOverrideIDs(agentOverrideMap, 'paused').length} 项 · 仅禁路由{' '}
+                {selectedOverrideIDs(agentOverrideMap, 'route_off').length} 项
+              </span>
+              <div className="flex gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setEditingAgentOverrides(null)}>
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={handleSaveAgentOverrides}>
+                  Save Overrides
+                </Button>
+              </div>
             </div>
           </div>
         </div>

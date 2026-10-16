@@ -127,28 +127,55 @@ func adminUpdateAgent(c *gin.Context) {
 		return
 	}
 
+	// Every field is a pointer so a caller that only edits one override never
+	// blanks the others (the UI saves the two target lists separately).
 	var req struct {
-		Name                 string  `json:"name"`
-		Tags                 string  `json:"tags"`
+		Name                 *string `json:"name"`
+		Tags                 *string `json:"tags"`
 		DisabledRouteTargets *string `json:"disabled_route_targets"`
+		PausedTargets        *string `json:"paused_targets"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if req.Name != "" {
-		agent.Name = req.Name
+	if req.Name != nil && strings.TrimSpace(*req.Name) != "" {
+		agent.Name = strings.TrimSpace(*req.Name)
 	}
-	agent.Tags = req.Tags
+	if req.Tags != nil {
+		agent.Tags = strings.TrimSpace(*req.Tags)
+	}
 	if req.DisabledRouteTargets != nil {
-		agent.DisabledRouteTargets = *req.DisabledRouteTargets
+		agent.DisabledRouteTargets = normalizeTargetIDList(*req.DisabledRouteTargets)
+	}
+	if req.PausedTargets != nil {
+		agent.PausedTargets = normalizeTargetIDList(*req.PausedTargets)
 	}
 	agent.UpdatedAt = time.Now()
 
-	db.DB.Save(&agent)
+	if err := db.DB.Save(&agent).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save probe overrides"})
+		return
+	}
 	ws.DefaultHub.SyncSingleAgent(agent.ID)
 	c.JSON(http.StatusOK, agent)
+}
+
+// normalizeTargetIDList cleans a comma-separated target ID list: it trims each
+// entry, drops blanks, and removes duplicates while preserving order.
+func normalizeTargetIDList(raw string) string {
+	seen := make(map[string]bool)
+	ids := make([]string, 0, 8)
+	for _, id := range strings.Split(raw, ",") {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	return strings.Join(ids, ",")
 }
 
 func adminDeleteAgent(c *gin.Context) {

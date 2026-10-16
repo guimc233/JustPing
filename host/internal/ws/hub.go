@@ -147,22 +147,46 @@ func (h *Hub) SyncSingleAgent(agentID string) {
 	_ = h.SendToAgent(agentID, protocol.TypeTargetSync, protocol.TargetSyncPayload{Targets: configs})
 }
 
-func buildTargetConfigs(agentID string, targets []model.Target) []protocol.TargetConfig {
-	disabledMap := make(map[string]bool)
-	if agentID != "" {
-		var ag model.Agent
-		if err := db.DB.Select("disabled_route_targets").First(&ag, "id = ?", agentID).Error; err == nil && ag.DisabledRouteTargets != "" {
-			for _, id := range strings.Split(ag.DisabledRouteTargets, ",") {
-				id = strings.TrimSpace(id)
-				if id != "" {
-					disabledMap[id] = true
-				}
-			}
+// splitIDList parses a comma-separated target ID list into a set, ignoring
+// blank entries.
+func splitIDList(raw string) map[string]bool {
+	set := make(map[string]bool)
+	for _, id := range strings.Split(raw, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			set[id] = true
 		}
 	}
+	return set
+}
+
+func buildTargetConfigs(agentID string, targets []model.Target) []protocol.TargetConfig {
+	var disabledRoute, paused string
+	if agentID != "" {
+		var ag model.Agent
+		if err := db.DB.Select("disabled_route_targets", "paused_targets").First(&ag, "id = ?", agentID).Error; err == nil {
+			disabledRoute, paused = ag.DisabledRouteTargets, ag.PausedTargets
+		}
+	}
+	return buildTargetConfigsWithOverrides(targets, disabledRoute, paused)
+}
+
+// buildTargetConfigsWithOverrides applies one probe's route and pause overrides to
+// the globally enabled target list. It is pure so the override rules can be tested
+// without a database.
+//
+// A paused target is omitted from the sync entirely: the probe then stops both
+// pinging and route-tracing it until the pause is lifted. Every probe release
+// already stops the worker of a target missing from a sync, so a pause needs no
+// protocol change. A route-disabled target is still probed, with route tracing off.
+func buildTargetConfigsWithOverrides(targets []model.Target, disabledRoute, paused string) []protocol.TargetConfig {
+	disabledMap := splitIDList(disabledRoute)
+	pausedMap := splitIDList(paused)
 
 	configs := make([]protocol.TargetConfig, 0, len(targets))
 	for _, t := range targets {
+		if pausedMap[t.ID] {
+			continue
+		}
 		configs = append(configs, protocol.TargetConfig{
 			ID:           t.ID,
 			Name:         t.Name,

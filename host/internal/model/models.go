@@ -60,6 +60,7 @@ type Agent struct {
 	Version              string    `gorm:"size:32" json:"version"`
 	Tags                 string    `gorm:"size:255" json:"tags"`
 	DisabledRouteTargets string    `gorm:"type:text" json:"disabled_route_targets"` // comma-separated target IDs where route testing is disabled for this agent
+	PausedTargets        string    `gorm:"type:text" json:"paused_targets"`         // comma-separated target IDs whose tests are paused for this agent
 	IsOnline             bool      `gorm:"default:false" json:"is_online"`
 	LastSeenAt           time.Time `json:"last_seen_at"`
 	CreatedAt            time.Time `json:"created_at"`
