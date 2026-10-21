@@ -13,7 +13,7 @@ RUN npm run build
 # ==========================================
 # Stage 2: Build Host Server Binary (Native Cross-Compiler)
 # ==========================================
-FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS host-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine AS host-builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev

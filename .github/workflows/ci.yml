@@ -12,6 +12,12 @@ permissions:
   contents: write
   packages: write
 
+# Go 1.26.10 (and 1.27.3) are the first releases that patch CVE-2026-111943:
+# crypto/x509 no longer returns chains built through a set of distrusted
+# intermediate certificates. Keep every job on a patched toolchain.
+env:
+  GO_VERSION: '1.26.10'
+
 jobs:
   # =========================================================================
   # 1. Build Multi-Platform Host Binaries
@@ -70,7 +76,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: '**/go.sum'
 
       - name: Compile Host Binary
@@ -196,7 +202,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: '**/go.sum'
 
       - name: Compile Agent Binary
@@ -264,9 +270,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          # The TUI client needs a newer toolchain than the Host and probe:
-          # bubbletea pulls in golang.org/x/sys, which requires Go 1.24.
-          go-version: '1.24'
+          go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: '**/go.sum'
 
       - name: Compile Tunnel Client Binary

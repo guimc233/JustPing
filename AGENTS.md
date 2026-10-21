@@ -13,7 +13,7 @@ JustPing is a distributed network-latency monitoring platform: a Go host server,
 - `scripts/install.sh` — universal Linux agent installer (systemd, OpenRC, procd, runit, SysVinit).
 - `.github/workflows/ci.yml` — builds binaries, Docker image, and tagged releases.
 
-`host`, `agent`, `tunnel`, and `shared` form a Go workspace (`go.work`). Each is its own Go module with `replace` directives to `../shared`. `host`, `agent`, and `shared` build with Go 1.22; `tunnel` requires Go 1.24 because its TUI dependency pulls in a newer `golang.org/x/sys`.
+`host`, `agent`, `tunnel`, and `shared` form a Go workspace (`go.work`). Each is its own Go module with `replace` directives to `../shared`. All four modules build with Go 1.26.10 or newer, the first release that fixes CVE-2026-111943 (`crypto/x509` returning chains through distrusted intermediate certificates). `tunnel`'s TUI dependency also pulls in a newer `golang.org/x/sys`.
 
 ## Build, Test, and Development Commands
 
